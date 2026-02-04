@@ -5,6 +5,7 @@
 *.so
 *.dylib
 gur
+guardrails
 
 # Test binary, built with `go test -c`
 *.test
