@@ -16,9 +16,9 @@ const (
 // Dependency represents a relationship between two tasks
 type Dependency struct {
 	ID        uint           `gorm:"primaryKey" json:"id"`
-	ParentID  string         `gorm:"size:20;not null;index:idx_parent" json:"parent_id"` // The blocking task
-	ChildID   string         `gorm:"size:20;not null;index:idx_child;index:idx_child_type_parent,priority:1" json:"child_id"`  // The blocked task
-	Type      string         `gorm:"size:20;default:blocks;index:idx_child_type_parent,priority:2" json:"type"`      // blocks, related, parent-child
+	ParentID  string         `gorm:"size:20;not null;index:idx_parent;index:idx_type_parent,priority:2" json:"parent_id"`                        // The blocking task
+	ChildID   string         `gorm:"size:20;not null;index:idx_child;index:idx_child_type_parent,priority:1" json:"child_id"`                    // The blocked task
+	Type      string         `gorm:"size:20;default:blocks;index:idx_child_type_parent,priority:2;index:idx_type_parent,priority:1" json:"type"` // blocks, related, parent-child
 	CreatedAt time.Time      `gorm:"autoCreateTime" json:"created_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 

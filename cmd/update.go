@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -118,7 +119,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	for _, skillName := range updateAddSkill {
 		var skill models.Skill
 		if err := database.Where("name = ?", skillName).First(&skill).Error; err != nil {
-			fmt.Printf("Warning: skill not found: %s\n", skillName)
+			fmt.Fprintf(os.Stderr, "Warning: skill not found: %s\n", skillName)
 			continue
 		}
 		// Check if already linked
@@ -127,7 +128,10 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 			continue // Already linked
 		}
 		link := models.TaskSkillLink{TaskID: task.ID, SkillID: skill.ID}
-		database.Create(&link)
+		if err := database.Create(&link).Error; err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to link skill %s: %v\n", skillName, err)
+			continue
+		}
 		models.RecordChange(database, task.ID, "skill_added", "", skillName, changedBy)
 	}
 
@@ -137,7 +141,10 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		if err := database.Where("name = ?", skillName).First(&skill).Error; err != nil {
 			continue
 		}
-		database.Where("task_id = ? AND skill_id = ?", task.ID, skill.ID).Delete(&models.TaskSkillLink{})
+		if err := database.Where("task_id = ? AND skill_id = ?", task.ID, skill.ID).Delete(&models.TaskSkillLink{}).Error; err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to unlink skill %s: %v\n", skillName, err)
+			continue
+		}
 		models.RecordChange(database, task.ID, "skill_removed", skillName, "", changedBy)
 	}
 
@@ -145,7 +152,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	for _, agentName := range updateAddAgent {
 		var agent models.Agent
 		if err := database.Where("name = ?", agentName).First(&agent).Error; err != nil {
-			fmt.Printf("Warning: agent not found: %s\n", agentName)
+			fmt.Fprintf(os.Stderr, "Warning: agent not found: %s\n", agentName)
 			continue
 		}
 		// Check if already linked
@@ -154,7 +161,10 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 			continue // Already linked
 		}
 		link := models.TaskAgentLink{TaskID: task.ID, AgentID: agent.ID}
-		database.Create(&link)
+		if err := database.Create(&link).Error; err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to link agent %s: %v\n", agentName, err)
+			continue
+		}
 		models.RecordChange(database, task.ID, "agent_added", "", agentName, changedBy)
 	}
 
@@ -164,7 +174,10 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		if err := database.Where("name = ?", agentName).First(&agent).Error; err != nil {
 			continue
 		}
-		database.Where("task_id = ? AND agent_id = ?", task.ID, agent.ID).Delete(&models.TaskAgentLink{})
+		if err := database.Where("task_id = ? AND agent_id = ?", task.ID, agent.ID).Delete(&models.TaskAgentLink{}).Error; err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to unlink agent %s: %v\n", agentName, err)
+			continue
+		}
 		models.RecordChange(database, task.ID, "agent_removed", agentName, "", changedBy)
 	}
 

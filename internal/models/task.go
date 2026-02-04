@@ -63,15 +63,16 @@ type Task struct {
 	ParentID    string         `gorm:"size:30;index" json:"parent_id,omitempty"`
 	Title       string         `gorm:"size:255;not null" json:"title"`
 	Description string         `gorm:"type:text" json:"description,omitempty"`
-	Status      string         `gorm:"size:20;default:open;index" json:"status"`
-	Priority    int            `gorm:"index" json:"priority"` // 0=highest, 4=lowest
-	Type        string         `gorm:"size:20;default:task" json:"type"`
+	Status      string         `gorm:"size:20;default:open;index;index:idx_status_priority" json:"status"`
+	Priority    int            `gorm:"index;index:idx_status_priority" json:"priority"` // 0=highest, 4=lowest
+	Type        string         `gorm:"size:20;default:task;index" json:"type"`
 	Labels      StringSlice    `gorm:"type:text" json:"labels,omitempty"`
 	Assignee    string         `gorm:"size:100;index" json:"assignee,omitempty"`
 	Notes       string         `gorm:"type:text" json:"notes,omitempty"`
 	CloseReason string         `gorm:"size:255" json:"close_reason,omitempty"`
 	Summary     string         `gorm:"type:text" json:"summary,omitempty"`
 	Compacted   bool           `gorm:"default:false" json:"compacted"`
+	Synced      bool           `gorm:"default:false;index" json:"synced"`
 	CreatedAt   time.Time      `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt   time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 	ClosedAt    *time.Time     `json:"closed_at,omitempty"`
@@ -91,8 +92,7 @@ func (s *StringSlice) Scan(value interface{}) error {
 	if !ok {
 		str, ok := value.(string)
 		if !ok {
-			*s = []string{}
-			return nil
+			return fmt.Errorf("StringSlice.Scan: unexpected type %T", value)
 		}
 		bytes = []byte(str)
 	}
@@ -101,9 +101,7 @@ func (s *StringSlice) Scan(value interface{}) error {
 		return nil
 	}
 	if err := json.Unmarshal(bytes, s); err != nil {
-		// If JSON unmarshal fails, initialize to empty slice rather than failing
-		*s = []string{}
-		return nil
+		return fmt.Errorf("StringSlice.Scan: invalid JSON: %w", err)
 	}
 	return nil
 }
@@ -124,8 +122,8 @@ func (s StringSlice) Value() (driver.Value, error) {
 func GenerateID() string {
 	bytes := make([]byte, IDByteLength)
 	if _, err := rand.Read(bytes); err != nil {
-		// Fallback to timestamp-based ID if crypto/rand fails
-		return fmt.Sprintf("%s%08x", IDPrefix, time.Now().UnixNano()&0xFFFFFFFF)
+		// crypto/rand failure indicates serious system issues - fail fast
+		panic(fmt.Sprintf("crypto/rand failed: %v", err))
 	}
 	return IDPrefix + hex.EncodeToString(bytes)
 }

@@ -153,7 +153,9 @@ func runSkillRemove(cmd *cobra.Command, args []string) error {
 	}
 
 	// Remove task links first
-	db.GetDB().Where("skill_id = ?", skill.ID).Delete(&models.TaskSkillLink{})
+	if err := db.GetDB().Where("skill_id = ?", skill.ID).Delete(&models.TaskSkillLink{}).Error; err != nil {
+		return fmt.Errorf("failed to remove skill links: %w", err)
+	}
 
 	if err := db.GetDB().Delete(&skill).Error; err != nil {
 		return err

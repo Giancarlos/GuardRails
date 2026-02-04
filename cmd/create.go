@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -127,22 +128,26 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	for _, skillName := range createSkills {
 		var skill models.Skill
 		if err := database.Where("name = ?", skillName).First(&skill).Error; err != nil {
-			fmt.Printf("Warning: skill not found: %s\n", skillName)
+			fmt.Fprintf(os.Stderr, "Warning: skill not found: %s\n", skillName)
 			continue
 		}
 		link := models.TaskSkillLink{TaskID: task.ID, SkillID: skill.ID}
-		database.Create(&link)
+		if err := database.Create(&link).Error; err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to link skill %s: %v\n", skillName, err)
+		}
 	}
 
 	// Link agents (first one is primary)
 	for i, agentName := range createAgents {
 		var agent models.Agent
 		if err := database.Where("name = ?", agentName).First(&agent).Error; err != nil {
-			fmt.Printf("Warning: agent not found: %s\n", agentName)
+			fmt.Fprintf(os.Stderr, "Warning: agent not found: %s\n", agentName)
 			continue
 		}
 		link := models.TaskAgentLink{TaskID: task.ID, AgentID: agent.ID, IsPrimary: i == 0}
-		database.Create(&link)
+		if err := database.Create(&link).Error; err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to link agent %s: %v\n", agentName, err)
+		}
 	}
 
 	if IsJSONOutput() {

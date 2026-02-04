@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/zalando/go-keyring"
+	"golang.org/x/term"
 
 	"guardrails/internal/db"
 	"guardrails/internal/models"
@@ -214,12 +215,15 @@ func configureGitHubInteractive() error {
 	fmt.Println("  Create at: GitHub Settings → Developer settings → Personal access tokens")
 	fmt.Println("  Required permissions: Issues (Read and Write)")
 	fmt.Println()
-	fmt.Print("Token (input hidden, paste and press Enter): ")
+	fmt.Print("Token (input hidden): ")
 
-	// Read token - note: in a real terminal this should use term.ReadPassword
-	// but for simplicity we'll just read the line
-	tokenInput, _ := reader.ReadString('\n')
-	tokenInput = strings.TrimSpace(tokenInput)
+	// Read token securely - input is masked
+	tokenBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println() // Print newline after hidden input
+	if err != nil {
+		return fmt.Errorf("failed to read token: %w", err)
+	}
+	tokenInput := strings.TrimSpace(string(tokenBytes))
 
 	if tokenInput == "" {
 		// Check if token already exists
@@ -257,15 +261,17 @@ func configureGitHubInteractive() error {
 
 // GetGitHubToken retrieves the GitHub token from keyring or environment
 func GetGitHubToken() (string, error) {
-	// First try environment variable
-	if token := os.Getenv("GUR_GITHUB_TOKEN"); token != "" {
+	// First try keyring (secure storage)
+	token, err := keyring.Get(models.KeyringServiceName, models.KeyringGitHubTokenKey)
+	if err == nil && token != "" {
 		return token, nil
 	}
 
-	// Then try keyring
-	token, err := keyring.Get(models.KeyringServiceName, models.KeyringGitHubTokenKey)
-	if err != nil {
-		return "", fmt.Errorf("GitHub token not found. Run 'gur config github' or set GUR_GITHUB_TOKEN")
+	// Fall back to environment variable (less secure, for CI/CD use)
+	if token := os.Getenv("GUR_GITHUB_TOKEN"); token != "" {
+		fmt.Fprintf(os.Stderr, "Warning: using GUR_GITHUB_TOKEN environment variable. Consider using 'gur config github' for secure storage.\n")
+		return token, nil
 	}
-	return token, nil
+
+	return "", fmt.Errorf("GitHub token not found. Run 'gur config github' or set GUR_GITHUB_TOKEN")
 }

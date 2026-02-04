@@ -23,8 +23,9 @@ const (
 )
 
 var (
-	db   *gorm.DB
-	dbMu sync.RWMutex
+	db     *gorm.DB
+	dbMu   sync.RWMutex
+	dbOnce sync.Once
 )
 
 // InitDB initializes the database connection and runs migrations
@@ -58,13 +59,21 @@ func InitDB(dbPath string) (*gorm.DB, error) {
 	sqlDB.SetMaxOpenConns(5)
 	sqlDB.SetMaxIdleConns(2)
 
-	// Enable WAL mode for better concurrency (multiple readers, single writer)
-	// and set busy timeout to wait instead of immediately failing on lock
-	if err := database.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
-		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
+	// SQLite performance optimizations
+	pragmas := []struct {
+		sql  string
+		desc string
+	}{
+		{"PRAGMA journal_mode=WAL", "enable WAL mode"},           // Better concurrency
+		{"PRAGMA busy_timeout=5000", "set busy timeout"},         // Wait on locks
+		{"PRAGMA synchronous=NORMAL", "set synchronous mode"},    // Safe with WAL, faster
+		{"PRAGMA cache_size=-64000", "set cache size"},           // 64MB cache
+		{"PRAGMA temp_store=MEMORY", "set temp store to memory"}, // Temp tables in RAM
 	}
-	if err := database.Exec("PRAGMA busy_timeout=5000").Error; err != nil {
-		return nil, fmt.Errorf("failed to set busy timeout: %w", err)
+	for _, p := range pragmas {
+		if err := database.Exec(p.sql).Error; err != nil {
+			return nil, fmt.Errorf("failed to %s: %w", p.desc, err)
+		}
 	}
 
 	// Run migrations
@@ -80,7 +89,7 @@ func InitDB(dbPath string) (*gorm.DB, error) {
 
 // runMigrations runs all database migrations
 func runMigrations(database *gorm.DB) error {
-	return database.AutoMigrate(
+	err := database.AutoMigrate(
 		&models.Task{},
 		&models.Dependency{},
 		&models.Config{},
@@ -95,6 +104,20 @@ func runMigrations(database *gorm.DB) error {
 		&models.TaskSkillLink{},
 		&models.TaskAgentLink{},
 	)
+	if err != nil {
+		return err
+	}
+
+	// Backfill: mark tasks as synced if they have a github_issue_links entry
+	if err := database.Exec(`
+		UPDATE tasks SET synced = true
+		WHERE id IN (SELECT task_id FROM github_issue_links)
+		AND synced = false
+	`).Error; err != nil {
+		return fmt.Errorf("failed to backfill synced field: %w", err)
+	}
+
+	return nil
 }
 
 // GetDB returns the current database connection
@@ -166,23 +189,30 @@ func GetDefaultDBPath() (string, error) {
 }
 
 // EnsureInitialized checks if the database is initialized
+// Uses sync.Once to prevent race conditions during concurrent initialization
 func EnsureInitialized() error {
 	dbMu.RLock()
 	isNil := db == nil
 	dbMu.RUnlock()
 
-	if isNil {
+	if !isNil {
+		return nil
+	}
+
+	var initErr error
+	dbOnce.Do(func() {
 		dbPath, err := GetDefaultDBPath()
 		if err != nil {
-			return err
+			initErr = err
+			return
 		}
 		if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-			return fmt.Errorf("guardrails not initialized. Run 'gur init' first")
+			initErr = fmt.Errorf("guardrails not initialized. Run 'gur init' first")
+			return
 		}
-		_, err = InitDB(dbPath)
-		return err
-	}
-	return nil
+		_, initErr = InitDB(dbPath)
+	})
+	return initErr
 }
 
 // SetConfig sets a configuration value

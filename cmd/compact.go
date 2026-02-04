@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"gorm.io/gorm"
 
 	"guardrails/internal/db"
 	"guardrails/internal/models"
@@ -125,14 +127,62 @@ func runCompact(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Compact each task
+	// Compact tasks in a transaction with batch updates
 	compactedCount := 0
-	for _, task := range tasks {
-		task.Compact()
-		if err := database.Save(&task).Error; err != nil {
-			return err
+	err := database.Transaction(func(tx *gorm.DB) error {
+		// Process in batches for memory efficiency
+		const batchSize = 100
+		for i := 0; i < len(tasks); i += batchSize {
+			end := i + batchSize
+			if end > len(tasks) {
+				end = len(tasks)
+			}
+			batch := tasks[i:end]
+
+			// Build batch update using CASE expression for summaries
+			ids := make([]string, len(batch))
+			summaries := make(map[string]string)
+			for j, task := range batch {
+				ids[j] = task.ID
+				// Generate summary
+				summary := task.Title
+				if task.CloseReason != "" {
+					summary += " | Closed: " + task.CloseReason
+				}
+				if task.Type != models.TypeTask {
+					summary = "[" + task.Type + "] " + summary
+				}
+				summaries[task.ID] = summary
+			}
+
+			// Build CASE expression for summary field
+			caseExpr := "CASE id"
+			args := make([]interface{}, 0, len(batch)*2+len(batch))
+			for _, id := range ids {
+				caseExpr += " WHEN ? THEN ?"
+				args = append(args, id, summaries[id])
+			}
+			caseExpr += " END"
+
+			// Add IDs for WHERE clause
+			for _, id := range ids {
+				args = append(args, id)
+			}
+
+			// Single UPDATE for entire batch
+			sql := fmt.Sprintf(`UPDATE tasks SET summary = %s, description = '', notes = '', compacted = true, updated_at = ? WHERE id IN (?%s)`,
+				caseExpr, strings.Repeat(",?", len(ids)-1))
+			args = append([]interface{}{time.Now()}, args...)
+
+			if err := tx.Exec(sql, args...).Error; err != nil {
+				return err
+			}
 		}
-		compactedCount++
+		compactedCount = len(tasks)
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	if IsJSONOutput() {
@@ -146,18 +196,38 @@ func runCompact(cmd *cobra.Command, args []string) error {
 func runSummary(cmd *cobra.Command, args []string) error {
 	database := db.GetDB()
 
-	// Get counts by status
-	var openCount, inProgressCount, closedCount, archivedCount int64
-	database.Model(&models.Task{}).Where("status = ?", models.StatusOpen).Count(&openCount)
-	database.Model(&models.Task{}).Where("status = ?", models.StatusInProgress).Count(&inProgressCount)
-	database.Model(&models.Task{}).Where("status = ?", models.StatusClosed).Count(&closedCount)
-	database.Model(&models.Task{}).Where("status = ?", models.StatusArchived).Count(&archivedCount)
+	// Get counts by status using single GROUP BY query
+	type statusCount struct {
+		Status string
+		Count  int64
+	}
+	var statusCounts []statusCount
+	database.Model(&models.Task{}).
+		Select("status, COUNT(*) as count").
+		Group("status").
+		Find(&statusCounts)
 
-	// Get recent activity (last 24 hours)
+	// Map results
+	var openCount, inProgressCount, closedCount, archivedCount int64
+	for _, sc := range statusCounts {
+		switch sc.Status {
+		case models.StatusOpen:
+			openCount = sc.Count
+		case models.StatusInProgress:
+			inProgressCount = sc.Count
+		case models.StatusClosed:
+			closedCount = sc.Count
+		case models.StatusArchived:
+			archivedCount = sc.Count
+		}
+	}
+
+	// Get recent activity (last 24 hours) - combined query
 	yesterday := time.Now().Add(-24 * time.Hour)
 	var recentlyCreated, recentlyClosed int64
-	database.Model(&models.Task{}).Where("created_at > ?", yesterday).Count(&recentlyCreated)
-	database.Model(&models.Task{}).Where("closed_at > ?", yesterday).Count(&recentlyClosed)
+	database.Model(&models.Task{}).
+		Select("SUM(CASE WHEN created_at > ? THEN 1 ELSE 0 END) as created, SUM(CASE WHEN closed_at > ? THEN 1 ELSE 0 END) as closed", yesterday, yesterday).
+		Row().Scan(&recentlyCreated, &recentlyClosed)
 
 	// Get high priority open tasks
 	var highPriorityTasks []models.Task
@@ -166,10 +236,11 @@ func runSummary(cmd *cobra.Command, args []string) error {
 		Limit(5).
 		Find(&highPriorityTasks)
 
-	// Get compacted vs uncompacted
+	// Get compacted vs uncompacted - combined query
 	var compactedCount, uncompactedCount int64
-	database.Model(&models.Task{}).Where("compacted = ?", true).Count(&compactedCount)
-	database.Model(&models.Task{}).Where("compacted = ? AND status IN ?", false, []string{models.StatusClosed, models.StatusArchived}).Count(&uncompactedCount)
+	database.Model(&models.Task{}).
+		Select("SUM(CASE WHEN compacted = true THEN 1 ELSE 0 END) as compacted, SUM(CASE WHEN compacted = false AND status IN (?, ?) THEN 1 ELSE 0 END) as uncompacted", models.StatusClosed, models.StatusArchived).
+		Row().Scan(&compactedCount, &uncompactedCount)
 
 	if IsJSONOutput() {
 		OutputJSON(map[string]interface{}{

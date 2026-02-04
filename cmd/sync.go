@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -11,6 +12,11 @@ import (
 
 	"guardrails/internal/db"
 	"guardrails/internal/models"
+)
+
+const (
+	// GitHub API timeout for individual requests
+	githubAPITimeout = 30 * time.Second
 )
 
 var syncCmd = &cobra.Command{
@@ -35,6 +41,8 @@ The issue title will be prefixed with the configured prefix (default: "[Coding A
 
 var (
 	syncPushAll    bool
+	syncPushOpen   bool
+	syncPushClosed bool
 	syncPushDryRun bool
 )
 
@@ -42,7 +50,9 @@ func init() {
 	rootCmd.AddCommand(syncCmd)
 	syncCmd.AddCommand(syncPushCmd)
 
-	syncPushCmd.Flags().BoolVar(&syncPushAll, "all", false, "Push all open tasks (not just unsynced)")
+	syncPushCmd.Flags().BoolVar(&syncPushAll, "all", false, "Push all tasks (open and closed)")
+	syncPushCmd.Flags().BoolVar(&syncPushOpen, "open", false, "Push only open tasks")
+	syncPushCmd.Flags().BoolVar(&syncPushClosed, "closed", false, "Push only closed tasks")
 	syncPushCmd.Flags().BoolVar(&syncPushDryRun, "dry-run", false, "Show what would be pushed without actually pushing")
 }
 
@@ -70,9 +80,20 @@ func runSyncPush(cmd *cobra.Command, args []string) error {
 	}
 	owner, repoName := parts[0], parts[1]
 
-	// Create GitHub client
-	client := github.NewClient(nil).WithAuthToken(token)
-	ctx := context.Background()
+	// Create GitHub client with connection pooling
+	httpClient := &http.Client{
+		Timeout: githubAPITimeout,
+		Transport: &http.Transport{
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 10,
+			IdleConnTimeout:     90 * time.Second,
+		},
+	}
+	client := github.NewClient(httpClient).WithAuthToken(token)
+
+	// Create context with timeout for the entire sync operation
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 
 	database := db.GetDB()
 
@@ -86,14 +107,30 @@ func runSyncPush(cmd *cobra.Command, args []string) error {
 		}
 		tasks = append(tasks, task)
 	} else if syncPushAll {
-		// Push all open tasks
-		if err := database.Where("status != ?", models.StatusArchived).Find(&tasks).Error; err != nil {
+		// Push all tasks (open and closed, excluding archived)
+		if err := database.Where("status != ?", models.StatusArchived).
+			Where("synced = ?", false).
+			Find(&tasks).Error; err != nil {
+			return err
+		}
+	} else if syncPushClosed {
+		// Push only closed tasks
+		if err := database.Where("status = ?", models.StatusClosed).
+			Where("synced = ?", false).
+			Find(&tasks).Error; err != nil {
+			return err
+		}
+	} else if syncPushOpen {
+		// Push only open tasks
+		if err := database.Where("status NOT IN ?", []string{models.StatusArchived, models.StatusClosed}).
+			Where("synced = ?", false).
+			Find(&tasks).Error; err != nil {
 			return err
 		}
 	} else {
-		// Push only unsynced open tasks
+		// Default: push unsynced open tasks (same as --open)
 		if err := database.Where("status NOT IN ?", []string{models.StatusArchived, models.StatusClosed}).
-			Where("id NOT IN (SELECT task_id FROM github_issue_links)").
+			Where("synced = ?", false).
 			Find(&tasks).Error; err != nil {
 			return err
 		}
@@ -217,6 +254,16 @@ func syncTaskToGitHub(ctx context.Context, client *github.Client, owner, repo, p
 		return nil, fmt.Errorf("failed to create issue: %w", err)
 	}
 
+	// If task is closed, close the issue immediately
+	if task.IsClosed() {
+		state := "closed"
+		closeRequest := &github.IssueRequest{State: &state}
+		issue, _, err = client.Issues.Edit(ctx, owner, repo, issue.GetNumber(), closeRequest)
+		if err != nil {
+			return nil, fmt.Errorf("failed to close issue: %w", err)
+		}
+	}
+
 	// Create link
 	newLink := models.GitHubIssueLink{
 		TaskID:       task.ID,
@@ -227,6 +274,11 @@ func syncTaskToGitHub(ctx context.Context, client *github.Client, owner, repo, p
 	}
 	if err := database.Create(&newLink).Error; err != nil {
 		return nil, fmt.Errorf("failed to save link: %w", err)
+	}
+
+	// Mark task as synced
+	if err := database.Model(&models.Task{}).Where("id = ?", task.ID).Update("synced", true).Error; err != nil {
+		return nil, fmt.Errorf("failed to mark task as synced: %w", err)
 	}
 
 	return map[string]interface{}{

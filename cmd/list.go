@@ -15,6 +15,8 @@ var (
 	listType     string
 	listAssignee string
 	listArchived bool
+	listLimit    int
+	listOffset   int
 )
 
 var listCmd = &cobra.Command{
@@ -31,6 +33,8 @@ func init() {
 	listCmd.Flags().StringVarP(&listType, "type", "t", "", "Filter by type")
 	listCmd.Flags().StringVarP(&listAssignee, "assignee", "a", "", "Filter by assignee")
 	listCmd.Flags().BoolVar(&listArchived, "archived", false, "Include archived tasks")
+	listCmd.Flags().IntVar(&listLimit, "limit", 0, "Limit number of results (0 = no limit)")
+	listCmd.Flags().IntVar(&listOffset, "offset", 0, "Skip first N results")
 }
 
 func runList(cmd *cobra.Command, args []string) error {
@@ -53,6 +57,13 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 	if listAssignee != "" {
 		query = query.Where("assignee = ?", listAssignee)
+	}
+
+	if listOffset > 0 {
+		query = query.Offset(listOffset)
+	}
+	if listLimit > 0 {
+		query = query.Limit(listLimit)
 	}
 
 	if err := query.Find(&tasks).Error; err != nil {

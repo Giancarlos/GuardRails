@@ -21,13 +21,24 @@ func init() {
 	rootCmd.AddCommand(searchCmd)
 }
 
+// escapeLikePattern escapes SQL LIKE wildcards in user input
+func escapeLikePattern(s string) string {
+	// Escape special LIKE characters: % and _
+	s = strings.ReplaceAll(s, "%", "\\%")
+	s = strings.ReplaceAll(s, "_", "\\_")
+	return s
+}
+
 func runSearch(cmd *cobra.Command, args []string) error {
-	query := "%" + strings.ToLower(args[0]) + "%"
+	// Escape wildcards in user input to prevent pattern injection
+	escaped := escapeLikePattern(strings.ToLower(args[0]))
+	query := "%" + escaped + "%"
 
 	// Use database-side filtering with LIKE for better performance
+	// ESCAPE clause tells SQLite to use backslash as escape character
 	var matches []models.Task
 	if err := db.GetDB().
-		Where("LOWER(title) LIKE ? OR LOWER(description) LIKE ?", query, query).
+		Where("LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(description) LIKE ? ESCAPE '\\'", query, query).
 		Order("priority ASC, created_at DESC").
 		Find(&matches).Error; err != nil {
 		return err

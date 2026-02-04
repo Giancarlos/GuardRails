@@ -103,8 +103,8 @@ func (GateRun) TableName() string {
 func GenerateGateID() string {
 	bytes := make([]byte, GateIDByteLength)
 	if _, err := rand.Read(bytes); err != nil {
-		// Fallback to timestamp-based ID if crypto/rand fails
-		return fmt.Sprintf("%s%08x", GateIDPrefix, time.Now().UnixNano()&0xFFFFFFFF)
+		// crypto/rand failure indicates serious system issues - fail fast
+		panic(fmt.Sprintf("crypto/rand failed: %v", err))
 	}
 	return GateIDPrefix + hex.EncodeToString(bytes)
 }

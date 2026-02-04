@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"gorm.io/gorm"
 
 	"guardrails/internal/db"
 	"guardrails/internal/models"
@@ -55,6 +56,39 @@ func init() {
 	depAddCmd.Flags().StringVarP(&depType, "type", "t", "blocks", "Type (blocks/related/parent-child)")
 }
 
+// wouldCreateCycle checks if adding blockerID -> blockedID would create a cycle
+// by checking if blockedID can reach blockerID through existing dependencies
+func wouldCreateCycle(database *gorm.DB, blockerID, blockedID string) bool {
+	// BFS to check if blockedID can reach blockerID
+	visited := make(map[string]bool)
+	queue := []string{blockedID}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		if visited[current] {
+			continue
+		}
+		visited[current] = true
+
+		// Find all tasks that 'current' blocks (where current is the parent/blocker)
+		var deps []models.Dependency
+		database.Where("parent_id = ?", current).Find(&deps)
+
+		for _, dep := range deps {
+			if dep.ChildID == blockerID {
+				// blockedID can reach blockerID - cycle detected
+				return true
+			}
+			if !visited[dep.ChildID] {
+				queue = append(queue, dep.ChildID)
+			}
+		}
+	}
+	return false
+}
+
 func runDepAdd(cmd *cobra.Command, args []string) error {
 	blockerID, blockedID := args[0], args[1]
 	database := db.GetDB()
@@ -69,6 +103,11 @@ func runDepAdd(cmd *cobra.Command, args []string) error {
 
 	if blockerID == blockedID {
 		return fmt.Errorf("task cannot block itself")
+	}
+
+	// Check for circular dependency
+	if wouldCreateCycle(database, blockerID, blockedID) {
+		return fmt.Errorf("circular dependency detected: %s already depends on %s", blockerID, blockedID)
 	}
 
 	dep := &models.Dependency{

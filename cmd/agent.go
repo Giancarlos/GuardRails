@@ -149,7 +149,9 @@ func runAgentRemove(cmd *cobra.Command, args []string) error {
 	}
 
 	// Remove task links first
-	db.GetDB().Where("agent_id = ?", agent.ID).Delete(&models.TaskAgentLink{})
+	if err := db.GetDB().Where("agent_id = ?", agent.ID).Delete(&models.TaskAgentLink{}).Error; err != nil {
+		return fmt.Errorf("failed to remove agent links: %w", err)
+	}
 
 	if err := db.GetDB().Delete(&agent).Error; err != nil {
 		return err

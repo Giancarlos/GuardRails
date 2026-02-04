@@ -24,7 +24,8 @@ type TaskHistory struct {
 func GenerateHistoryID() string {
 	bytes := make([]byte, 4)
 	if _, err := rand.Read(bytes); err != nil {
-		return fmt.Sprintf("hist-%08x", time.Now().UnixNano()&0xFFFFFFFF)
+		// crypto/rand failure indicates serious system issues - fail fast
+		panic(fmt.Sprintf("crypto/rand failed: %v", err))
 	}
 	return "hist-" + hex.EncodeToString(bytes)
 }
