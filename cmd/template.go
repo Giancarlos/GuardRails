@@ -74,7 +74,7 @@ func runTemplateCreate(cmd *cobra.Command, args []string) error {
 	// Check if template already exists
 	var existing models.Template
 	if err := db.GetDB().Where("name = ?", name).First(&existing).Error; err == nil {
-		return fmt.Errorf("template '%s' already exists", name)
+		return fmt.Errorf("cannot create template: template '%s' already exists (use 'gur template show %s' to view it)", name, name)
 	}
 
 	template := &models.Template{
@@ -87,7 +87,7 @@ func runTemplateCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := db.GetDB().Create(template).Error; err != nil {
-		return err
+		return fmt.Errorf("failed to create template '%s': database error: %w", name, err)
 	}
 
 	if IsJSONOutput() {
@@ -128,7 +128,7 @@ func runTemplateShow(cmd *cobra.Command, args []string) error {
 	name := args[0]
 	var template models.Template
 	if err := db.GetDB().Where("name = ? OR id = ?", name, name).First(&template).Error; err != nil {
-		return fmt.Errorf("template not found: %s", name)
+		return fmt.Errorf("template '%s' not found (use 'gur template list' to see available templates)", name)
 	}
 
 	if IsJSONOutput() {
@@ -156,10 +156,10 @@ func runTemplateDelete(cmd *cobra.Command, args []string) error {
 	name := args[0]
 	result := db.GetDB().Where("name = ? OR id = ?", name, name).Delete(&models.Template{})
 	if result.Error != nil {
-		return result.Error
+		return fmt.Errorf("failed to delete template '%s': database error: %w", name, result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("template not found: %s", name)
+		return fmt.Errorf("cannot delete template: template '%s' not found (use 'gur template list' to see available templates)", name)
 	}
 
 	if IsJSONOutput() {

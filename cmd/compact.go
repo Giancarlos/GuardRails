@@ -56,13 +56,14 @@ func runCompact(cmd *cobra.Command, args []string) error {
 		taskID := args[0]
 		var task models.Task
 		if err := database.First(&task, "id = ?", taskID).Error; err != nil {
-			return fmt.Errorf("task not found: %s", taskID)
+			return fmt.Errorf("cannot compact task: task '%s' not found (use 'gur list' to see available tasks)", taskID)
 		}
 		if task.Status != models.StatusClosed && task.Status != models.StatusArchived {
-			return fmt.Errorf("only closed or archived tasks can be compacted (current status: %s)", task.Status)
+			return fmt.Errorf("cannot compact task '%s': only closed or archived tasks can be compacted (current status: %s)",
+				taskID, task.Status)
 		}
 		if task.Compacted {
-			return fmt.Errorf("task already compacted")
+			return fmt.Errorf("cannot compact task '%s': task already compacted (summary: %s)", taskID, task.Summary)
 		}
 
 		if compactSummary {
@@ -74,7 +75,7 @@ func runCompact(cmd *cobra.Command, args []string) error {
 
 		task.Compact()
 		if err := database.Save(&task).Error; err != nil {
-			return err
+			return fmt.Errorf("failed to compact task '%s': database error: %w", taskID, err)
 		}
 
 		if IsJSONOutput() {
@@ -88,7 +89,7 @@ func runCompact(cmd *cobra.Command, args []string) error {
 
 	// Bulk compact
 	if !compactAll && compactBefore == "" {
-		return fmt.Errorf("specify a task ID, --all, or --before")
+		return fmt.Errorf("missing argument: specify a task ID, use --all for all closed tasks, or --before <duration> (e.g., --before 7d)")
 	}
 
 	query := database.Model(&models.Task{}).

@@ -25,7 +25,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 	database := db.GetDB()
 	var task models.Task
 	if err := database.Where("id = ?", args[0]).First(&task).Error; err != nil {
-		return fmt.Errorf("task not found: %s", args[0])
+		return fmt.Errorf("task '%s' not found (use 'gur list' to see available tasks, or 'gur search' to find by keyword)", args[0])
 	}
 
 	// Use eager loading to fetch dependencies in fewer queries

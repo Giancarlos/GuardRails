@@ -117,7 +117,7 @@ func runAgentAdd(cmd *cobra.Command, args []string) error {
 	// Check if already exists
 	var existing models.Agent
 	if err := db.GetDB().Where("name = ?", name).First(&existing).Error; err == nil {
-		return fmt.Errorf("agent '%s' already exists", name)
+		return fmt.Errorf("cannot add agent: agent '%s' already exists (use 'gur agent show %s' to view it)", name, name)
 	}
 
 	agent := models.Agent{
@@ -129,7 +129,7 @@ func runAgentAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := db.GetDB().Create(&agent).Error; err != nil {
-		return err
+		return fmt.Errorf("failed to register agent '%s': database error: %w", name, err)
 	}
 
 	if IsJSONOutput() {
@@ -145,16 +145,16 @@ func runAgentRemove(cmd *cobra.Command, args []string) error {
 
 	var agent models.Agent
 	if err := db.GetDB().Where("name = ?", name).First(&agent).Error; err != nil {
-		return fmt.Errorf("agent not found: %s", name)
+		return fmt.Errorf("cannot remove agent: agent '%s' not found (use 'gur agent list' to see registered agents)", name)
 	}
 
 	// Remove task links first
 	if err := db.GetDB().Where("agent_id = ?", agent.ID).Delete(&models.TaskAgentLink{}).Error; err != nil {
-		return fmt.Errorf("failed to remove agent links: %w", err)
+		return fmt.Errorf("failed to remove agent '%s': could not delete task links: %w", name, err)
 	}
 
 	if err := db.GetDB().Delete(&agent).Error; err != nil {
-		return err
+		return fmt.Errorf("failed to remove agent '%s': database error: %w", name, err)
 	}
 
 	if IsJSONOutput() {
@@ -170,7 +170,7 @@ func runAgentShow(cmd *cobra.Command, args []string) error {
 
 	var agent models.Agent
 	if err := db.GetDB().Where("name = ? OR id = ?", name, name).First(&agent).Error; err != nil {
-		return fmt.Errorf("agent not found: %s", name)
+		return fmt.Errorf("agent '%s' not found (use 'gur agent list' to see registered agents, or 'gur agent scan' to auto-discover)", name)
 	}
 
 	// Get linked tasks

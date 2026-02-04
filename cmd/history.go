@@ -29,7 +29,7 @@ func runHistory(cmd *cobra.Command, args []string) error {
 	// Verify task exists
 	var task models.Task
 	if err := db.GetDB().Where("id = ?", taskID).First(&task).Error; err != nil {
-		return fmt.Errorf("task not found: %s", taskID)
+		return fmt.Errorf("cannot show history: task '%s' not found (use 'gur list' to see available tasks)", taskID)
 	}
 
 	var history []models.TaskHistory
@@ -37,7 +37,7 @@ func runHistory(cmd *cobra.Command, args []string) error {
 		Order("changed_at DESC").
 		Limit(historyLimit).
 		Find(&history).Error; err != nil {
-		return err
+		return fmt.Errorf("failed to retrieve history for task '%s': database error: %w", taskID, err)
 	}
 
 	if IsJSONOutput() {

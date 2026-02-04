@@ -34,11 +34,12 @@ func runClose(cmd *cobra.Command, args []string) error {
 
 	// First, find the task
 	if err := database.Where("id = ?", args[0]).First(&task).Error; err != nil {
-		return fmt.Errorf("task not found: %s", args[0])
+		return fmt.Errorf("cannot close task: task '%s' not found (use 'gur list' to see available tasks)", args[0])
 	}
 
 	if task.IsClosed() {
-		return fmt.Errorf("task already closed")
+		return fmt.Errorf("cannot close task '%s': already closed on %s with reason: %s",
+			task.ID, task.ClosedAt.Format(models.DateTimeShortFormat), task.CloseReason)
 	}
 
 	if !closeForce {
@@ -51,7 +52,8 @@ func runClose(cmd *cobra.Command, args []string) error {
 			Count(&blockerCount)
 
 		if blockerCount > 0 {
-			return fmt.Errorf("task has %d open blocker(s). Use --force", blockerCount)
+			return fmt.Errorf("cannot close task '%s': blocked by %d open task(s) (use 'gur show %s' to see blockers, or --force to override)",
+				task.ID, blockerCount, task.ID)
 		}
 
 		// Check for open subtasks
@@ -61,7 +63,8 @@ func runClose(cmd *cobra.Command, args []string) error {
 			Count(&openSubtasks)
 
 		if openSubtasks > 0 {
-			return fmt.Errorf("task has %d open subtask(s). Close them first or use --force", openSubtasks)
+			return fmt.Errorf("cannot close task '%s': has %d open subtask(s) (close subtasks first, or use --force to override)",
+				task.ID, openSubtasks)
 		}
 
 		// Check for linked gates that haven't passed
@@ -75,7 +78,7 @@ func runClose(cmd *cobra.Command, args []string) error {
 	models.RecordChange(database, task.ID, "close_reason", "", closeReason, "user")
 	task.Close(closeReason)
 	if err := database.Save(&task).Error; err != nil {
-		return err
+		return fmt.Errorf("failed to close task '%s': database error: %w", task.ID, err)
 	}
 
 	if IsJSONOutput() {

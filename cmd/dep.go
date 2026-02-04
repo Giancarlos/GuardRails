@@ -95,19 +95,20 @@ func runDepAdd(cmd *cobra.Command, args []string) error {
 
 	var blocker, blocked models.Task
 	if err := database.Where("id = ?", blockerID).First(&blocker).Error; err != nil {
-		return fmt.Errorf("blocker task not found: %s", blockerID)
+		return fmt.Errorf("cannot add dependency: blocker task '%s' not found (use 'gur list' to see available tasks)", blockerID)
 	}
 	if err := database.Where("id = ?", blockedID).First(&blocked).Error; err != nil {
-		return fmt.Errorf("blocked task not found: %s", blockedID)
+		return fmt.Errorf("cannot add dependency: blocked task '%s' not found (use 'gur list' to see available tasks)", blockedID)
 	}
 
 	if blockerID == blockedID {
-		return fmt.Errorf("task cannot block itself")
+		return fmt.Errorf("cannot add dependency: task '%s' cannot block itself", blockerID)
 	}
 
 	// Check for circular dependency
 	if wouldCreateCycle(database, blockerID, blockedID) {
-		return fmt.Errorf("circular dependency detected: %s already depends on %s", blockerID, blockedID)
+		return fmt.Errorf("cannot add dependency: circular dependency detected - '%s' already depends on '%s' (use 'gur dep list %s' to see dependency chain)",
+			blockerID, blockedID, blockerID)
 	}
 
 	dep := &models.Dependency{
@@ -117,7 +118,7 @@ func runDepAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := database.Create(dep).Error; err != nil {
-		return err
+		return fmt.Errorf("failed to create dependency from '%s' to '%s': database error: %w", blockerID, blockedID, err)
 	}
 
 	if IsJSONOutput() {
@@ -135,15 +136,16 @@ func runDepRemove(cmd *cobra.Command, args []string) error {
 	// Validate that both tasks exist
 	var blocker, blocked models.Task
 	if err := database.Where("id = ?", blockerID).First(&blocker).Error; err != nil {
-		return fmt.Errorf("blocker task not found: %s", blockerID)
+		return fmt.Errorf("cannot remove dependency: blocker task '%s' not found", blockerID)
 	}
 	if err := database.Where("id = ?", blockedID).First(&blocked).Error; err != nil {
-		return fmt.Errorf("blocked task not found: %s", blockedID)
+		return fmt.Errorf("cannot remove dependency: blocked task '%s' not found", blockedID)
 	}
 
 	result := database.Where("parent_id = ? AND child_id = ?", blockerID, blockedID).Delete(&models.Dependency{})
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("dependency not found between %s and %s", blockerID, blockedID)
+		return fmt.Errorf("cannot remove dependency: no dependency exists where '%s' blocks '%s' (use 'gur dep list %s' to see existing dependencies)",
+			blockerID, blockedID, blockerID)
 	}
 
 	if IsJSONOutput() {
