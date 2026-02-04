@@ -1,0 +1,66 @@
+version: 2
+
+project_name: gur
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: gur
+    main: .
+    binary: gur
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README*
+      - LICENSE*
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+# Uncomment to enable Homebrew tap (requires GitHub token)
+# brews:
+#   - repository:
+#       owner: YOUR_GITHUB_USERNAME
+#       name: homebrew-tap
+#     homepage: https://github.com/YOUR_GITHUB_USERNAME/guardrails
+#     description: Task management CLI for AI agents
+#     license: MIT
+#     install: |
+#       bin.install "gur"
+#     test: |
+#       system "#{bin}/gur", "--version"

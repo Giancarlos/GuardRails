@@ -1,0 +1,171 @@
+package cmd
+
+import (
+	"fmt"
+
+	"github.com/spf13/cobra"
+
+	"guardrails/internal/db"
+	"guardrails/internal/models"
+)
+
+var (
+	tmplPriority    int
+	tmplType        string
+	tmplDescription string
+	tmplLabels      []string
+)
+
+var templateCmd = &cobra.Command{
+	Use:     "template",
+	Aliases: []string{"tmpl"},
+	Short:   "Manage task templates",
+}
+
+var templateCreateCmd = &cobra.Command{
+	Use:   "create <name> [title]",
+	Short: "Create a new template",
+	Args:  cobra.RangeArgs(1, 2),
+	RunE:  runTemplateCreate,
+}
+
+var templateListCmd = &cobra.Command{
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "List all templates",
+	RunE:    runTemplateList,
+}
+
+var templateShowCmd = &cobra.Command{
+	Use:   "show <name>",
+	Short: "Show template details",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runTemplateShow,
+}
+
+var templateDeleteCmd = &cobra.Command{
+	Use:     "delete <name>",
+	Aliases: []string{"rm"},
+	Short:   "Delete a template",
+	Args:    cobra.ExactArgs(1),
+	RunE:    runTemplateDelete,
+}
+
+func init() {
+	rootCmd.AddCommand(templateCmd)
+	templateCmd.AddCommand(templateCreateCmd)
+	templateCmd.AddCommand(templateListCmd)
+	templateCmd.AddCommand(templateShowCmd)
+	templateCmd.AddCommand(templateDeleteCmd)
+
+	templateCreateCmd.Flags().IntVarP(&tmplPriority, "priority", "p", models.PriorityMedium, "Default priority (0-4)")
+	templateCreateCmd.Flags().StringVarP(&tmplType, "type", "t", models.TypeTask, "Default type (task, bug, feature, epic)")
+	templateCreateCmd.Flags().StringVarP(&tmplDescription, "description", "d", "", "Default description")
+	templateCreateCmd.Flags().StringSliceVarP(&tmplLabels, "label", "l", nil, "Default labels")
+}
+
+func runTemplateCreate(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	title := ""
+	if len(args) > 1 {
+		title = args[1]
+	}
+
+	// Check if template already exists
+	var existing models.Template
+	if err := db.GetDB().Where("name = ?", name).First(&existing).Error; err == nil {
+		return fmt.Errorf("template '%s' already exists", name)
+	}
+
+	template := &models.Template{
+		Name:        name,
+		Title:       title,
+		Description: tmplDescription,
+		Priority:    tmplPriority,
+		Type:        tmplType,
+		Labels:      tmplLabels,
+	}
+
+	if err := db.GetDB().Create(template).Error; err != nil {
+		return err
+	}
+
+	if IsJSONOutput() {
+		OutputJSON(template)
+		return nil
+	}
+	fmt.Printf("Created template: %s\n", name)
+	return nil
+}
+
+func runTemplateList(cmd *cobra.Command, args []string) error {
+	var templates []models.Template
+	if err := db.GetDB().Order("name ASC").Find(&templates).Error; err != nil {
+		return err
+	}
+
+	if IsJSONOutput() {
+		OutputJSON(map[string]interface{}{"count": len(templates), "templates": templates})
+		return nil
+	}
+
+	if len(templates) == 0 {
+		fmt.Println("No templates found")
+		return nil
+	}
+
+	for _, t := range templates {
+		titlePart := ""
+		if t.Title != "" {
+			titlePart = fmt.Sprintf(" - \"%s\"", t.Title)
+		}
+		fmt.Printf("[%s] %s%s (P%d %s)\n", t.ID, t.Name, titlePart, t.Priority, t.Type)
+	}
+	return nil
+}
+
+func runTemplateShow(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	var template models.Template
+	if err := db.GetDB().Where("name = ? OR id = ?", name, name).First(&template).Error; err != nil {
+		return fmt.Errorf("template not found: %s", name)
+	}
+
+	if IsJSONOutput() {
+		OutputJSON(template)
+		return nil
+	}
+
+	fmt.Printf("ID:          %s\n", template.ID)
+	fmt.Printf("Name:        %s\n", template.Name)
+	if template.Title != "" {
+		fmt.Printf("Title:       %s\n", template.Title)
+	}
+	fmt.Printf("Type:        %s\n", template.Type)
+	fmt.Printf("Priority:    P%d\n", template.Priority)
+	if template.Description != "" {
+		fmt.Printf("Description: %s\n", template.Description)
+	}
+	if len(template.Labels) > 0 {
+		fmt.Printf("Labels:      %v\n", template.Labels)
+	}
+	return nil
+}
+
+func runTemplateDelete(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	result := db.GetDB().Where("name = ? OR id = ?", name, name).Delete(&models.Template{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("template not found: %s", name)
+	}
+
+	if IsJSONOutput() {
+		OutputJSON(map[string]interface{}{"deleted": name})
+		return nil
+	}
+	fmt.Printf("Deleted template: %s\n", name)
+	return nil
+}
