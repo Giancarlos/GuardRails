@@ -17,6 +17,8 @@ var (
 	createDescription string
 	createTemplate    string
 	createParent      string
+	createSkills      []string
+	createAgents      []string
 )
 
 var createCmd = &cobra.Command{
@@ -35,6 +37,8 @@ func init() {
 	createCmd.Flags().StringVarP(&createDescription, "description", "d", "", "Description")
 	createCmd.Flags().StringVar(&createTemplate, "template", "", "Create from template")
 	createCmd.Flags().StringVar(&createParent, "parent", "", "Parent task ID (creates subtask)")
+	createCmd.Flags().StringArrayVar(&createSkills, "skill", nil, "Link skill to task")
+	createCmd.Flags().StringArrayVar(&createAgents, "agent", nil, "Link agent to task")
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
@@ -117,6 +121,28 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	if err := database.Create(task).Error; err != nil {
 		return err
+	}
+
+	// Link skills
+	for _, skillName := range createSkills {
+		var skill models.Skill
+		if err := database.Where("name = ?", skillName).First(&skill).Error; err != nil {
+			fmt.Printf("Warning: skill not found: %s\n", skillName)
+			continue
+		}
+		link := models.TaskSkillLink{TaskID: task.ID, SkillID: skill.ID}
+		database.Create(&link)
+	}
+
+	// Link agents (first one is primary)
+	for i, agentName := range createAgents {
+		var agent models.Agent
+		if err := database.Where("name = ?", agentName).First(&agent).Error; err != nil {
+			fmt.Printf("Warning: agent not found: %s\n", agentName)
+			continue
+		}
+		link := models.TaskAgentLink{TaskID: task.ID, AgentID: agent.ID, IsPrimary: i == 0}
+		database.Create(&link)
 	}
 
 	if IsJSONOutput() {

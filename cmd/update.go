@@ -19,6 +19,10 @@ var (
 	updateNotes       string
 	updateAddLabel    []string
 	updateRemoveLabel []string
+	updateAddSkill    []string
+	updateRemoveSkill []string
+	updateAddAgent    []string
+	updateRemoveAgent []string
 )
 
 var updateCmd = &cobra.Command{
@@ -39,6 +43,10 @@ func init() {
 	updateCmd.Flags().StringVar(&updateNotes, "notes", "", "Append notes")
 	updateCmd.Flags().StringArrayVar(&updateAddLabel, "label", nil, "Add label")
 	updateCmd.Flags().StringArrayVar(&updateRemoveLabel, "remove-label", nil, "Remove label")
+	updateCmd.Flags().StringArrayVar(&updateAddSkill, "skill", nil, "Link skill to task")
+	updateCmd.Flags().StringArrayVar(&updateRemoveSkill, "remove-skill", nil, "Unlink skill from task")
+	updateCmd.Flags().StringArrayVar(&updateAddAgent, "agent", nil, "Link agent to task")
+	updateCmd.Flags().StringArrayVar(&updateRemoveAgent, "remove-agent", nil, "Unlink agent from task")
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {
@@ -104,6 +112,60 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	for _, l := range updateRemoveLabel {
 		models.RecordChange(database, task.ID, "label_removed", l, "", changedBy)
 		task.RemoveLabel(l)
+	}
+
+	// Link skills
+	for _, skillName := range updateAddSkill {
+		var skill models.Skill
+		if err := database.Where("name = ?", skillName).First(&skill).Error; err != nil {
+			fmt.Printf("Warning: skill not found: %s\n", skillName)
+			continue
+		}
+		// Check if already linked
+		var existing models.TaskSkillLink
+		if database.Where("task_id = ? AND skill_id = ?", task.ID, skill.ID).First(&existing).Error == nil {
+			continue // Already linked
+		}
+		link := models.TaskSkillLink{TaskID: task.ID, SkillID: skill.ID}
+		database.Create(&link)
+		models.RecordChange(database, task.ID, "skill_added", "", skillName, changedBy)
+	}
+
+	// Unlink skills
+	for _, skillName := range updateRemoveSkill {
+		var skill models.Skill
+		if err := database.Where("name = ?", skillName).First(&skill).Error; err != nil {
+			continue
+		}
+		database.Where("task_id = ? AND skill_id = ?", task.ID, skill.ID).Delete(&models.TaskSkillLink{})
+		models.RecordChange(database, task.ID, "skill_removed", skillName, "", changedBy)
+	}
+
+	// Link agents
+	for _, agentName := range updateAddAgent {
+		var agent models.Agent
+		if err := database.Where("name = ?", agentName).First(&agent).Error; err != nil {
+			fmt.Printf("Warning: agent not found: %s\n", agentName)
+			continue
+		}
+		// Check if already linked
+		var existing models.TaskAgentLink
+		if database.Where("task_id = ? AND agent_id = ?", task.ID, agent.ID).First(&existing).Error == nil {
+			continue // Already linked
+		}
+		link := models.TaskAgentLink{TaskID: task.ID, AgentID: agent.ID}
+		database.Create(&link)
+		models.RecordChange(database, task.ID, "agent_added", "", agentName, changedBy)
+	}
+
+	// Unlink agents
+	for _, agentName := range updateRemoveAgent {
+		var agent models.Agent
+		if err := database.Where("name = ?", agentName).First(&agent).Error; err != nil {
+			continue
+		}
+		database.Where("task_id = ? AND agent_id = ?", task.ID, agent.ID).Delete(&models.TaskAgentLink{})
+		models.RecordChange(database, task.ID, "agent_removed", agentName, "", changedBy)
 	}
 
 	if err := database.Save(&task).Error; err != nil {

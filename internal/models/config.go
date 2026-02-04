@@ -26,6 +26,20 @@ const (
 	ConfigMode          = "mode"
 )
 
+// GitHub config keys
+const (
+	ConfigGitHubRepo        = "github_repo"         // owner/repo format
+	ConfigGitHubIssuePrefix = "github_issue_prefix" // e.g., "[Coding Agent]"
+	ConfigGitHubTokenSet    = "github_token_set"    // "true" if token stored in keyring
+)
+
+// Default values
+const (
+	DefaultGitHubIssuePrefix = "[Coding Agent]"
+	KeyringServiceName       = "guardrails"
+	KeyringGitHubTokenKey    = "github_token"
+)
+
 // Mode constants
 const (
 	ModeDefault     = "default"     // Standard mode - full integration

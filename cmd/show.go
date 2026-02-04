@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -36,8 +37,23 @@ func runShow(cmd *cobra.Command, args []string) error {
 	var subtasks []models.Task
 	database.Where("parent_id = ?", task.ID).Order("id ASC").Find(&subtasks)
 
+	// Fetch linked skills
+	var skillLinks []models.TaskSkillLink
+	database.Preload("Skill").Where("task_id = ?", task.ID).Find(&skillLinks)
+
+	// Fetch linked agents
+	var agentLinks []models.TaskAgentLink
+	database.Preload("Agent").Where("task_id = ?", task.ID).Find(&agentLinks)
+
 	if IsJSONOutput() {
-		OutputJSON(map[string]interface{}{"task": task, "blocked_by": blockedBy, "blocks": blocks, "subtasks": subtasks})
+		OutputJSON(map[string]interface{}{
+			"task":       task,
+			"blocked_by": blockedBy,
+			"blocks":     blocks,
+			"subtasks":   subtasks,
+			"skills":     skillLinks,
+			"agents":     agentLinks,
+		})
 		return nil
 	}
 
@@ -83,5 +99,30 @@ func runShow(cmd *cobra.Command, args []string) error {
 	if task.Notes != "" {
 		fmt.Printf("\nNotes:\n%s", task.Notes)
 	}
+
+	// Show recommended skills and agents
+	if len(skillLinks) > 0 || len(agentLinks) > 0 {
+		fmt.Println()
+		fmt.Println("Recommended:")
+		if len(skillLinks) > 0 {
+			var skillNames []string
+			for _, sl := range skillLinks {
+				skillNames = append(skillNames, "/"+sl.Skill.Name)
+			}
+			fmt.Printf("  Skills: %s\n", strings.Join(skillNames, ", "))
+		}
+		if len(agentLinks) > 0 {
+			var agentNames []string
+			for _, al := range agentLinks {
+				name := al.Agent.Name
+				if al.IsPrimary {
+					name += " (primary)"
+				}
+				agentNames = append(agentNames, name)
+			}
+			fmt.Printf("  Agents: %s\n", strings.Join(agentNames, ", "))
+		}
+	}
+
 	return nil
 }

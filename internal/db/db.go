@@ -89,6 +89,11 @@ func runMigrations(database *gorm.DB) error {
 		&models.GateRun{},
 		&models.Template{},
 		&models.TaskHistory{},
+		&models.GitHubIssueLink{},
+		&models.Skill{},
+		&models.Agent{},
+		&models.TaskSkillLink{},
+		&models.TaskAgentLink{},
 	)
 }
 
