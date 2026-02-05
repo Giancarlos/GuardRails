@@ -20,6 +20,12 @@ const (
 	StatusArchived   = "archived"
 )
 
+// Task source constants
+const (
+	SourceLocal  = "local"
+	SourceGitHub = "github"
+)
+
 // Task type constants
 const (
 	TypeTask    = "task"
@@ -73,6 +79,7 @@ type Task struct {
 	Summary     string         `gorm:"type:text" json:"summary,omitempty"`
 	Compacted   bool           `gorm:"default:false" json:"compacted"`
 	Synced      bool           `gorm:"default:false;index" json:"synced"`
+	Source      string         `gorm:"size:20;default:local;index" json:"source"` // local or github
 	CreatedAt   time.Time      `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt   time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 	ClosedAt    *time.Time     `json:"closed_at,omitempty"`
