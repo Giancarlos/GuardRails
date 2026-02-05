@@ -18,8 +18,9 @@ var agentCmd = &cobra.Command{
 	Short: "Manage AI agents",
 	Long: `Manage AI agents that can be linked to tasks.
 
-Agents are defined in files like AGENTS.md, CLAUDE.md, or custom agent configurations.
-When a task has linked agents, the agent working on it will be informed which agent to use or delegate to.`,
+Agents are defined in files like AGENTS.md, CLAUDE.md, or custom agent
+configurations. When a task has linked agents, the agent working on it
+will be informed which agent to use or delegate to.`,
 }
 
 var agentListCmd = &cobra.Command{

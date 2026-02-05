@@ -27,8 +27,8 @@ func runHistory(cmd *cobra.Command, args []string) error {
 	taskID := args[0]
 
 	// Verify task exists
-	var task models.Task
-	if err := db.GetDB().Where("id = ?", taskID).First(&task).Error; err != nil {
+	task, err := db.GetTaskByID(taskID)
+	if err != nil {
 		return fmt.Errorf("cannot show history: task '%s' not found (use 'gur list' to see available tasks)", taskID)
 	}
 
