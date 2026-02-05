@@ -93,11 +93,10 @@ func runDepAdd(cmd *cobra.Command, args []string) error {
 	blockerID, blockedID := args[0], args[1]
 	database := db.GetDB()
 
-	var blocker, blocked models.Task
-	if err := database.Where("id = ?", blockerID).First(&blocker).Error; err != nil {
+	if _, err := db.GetTaskByID(blockerID); err != nil {
 		return fmt.Errorf("blocker task not found: %s", blockerID)
 	}
-	if err := database.Where("id = ?", blockedID).First(&blocked).Error; err != nil {
+	if _, err := db.GetTaskByID(blockedID); err != nil {
 		return fmt.Errorf("blocked task not found: %s", blockedID)
 	}
 
@@ -133,11 +132,10 @@ func runDepRemove(cmd *cobra.Command, args []string) error {
 	database := db.GetDB()
 
 	// Validate that both tasks exist
-	var blocker, blocked models.Task
-	if err := database.Where("id = ?", blockerID).First(&blocker).Error; err != nil {
+	if _, err := db.GetTaskByID(blockerID); err != nil {
 		return fmt.Errorf("blocker task not found: %s", blockerID)
 	}
-	if err := database.Where("id = ?", blockedID).First(&blocked).Error; err != nil {
+	if _, err := db.GetTaskByID(blockedID); err != nil {
 		return fmt.Errorf("blocked task not found: %s", blockedID)
 	}
 

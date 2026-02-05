@@ -101,11 +101,11 @@ func runSyncPush(cmd *cobra.Command, args []string) error {
 	var tasks []models.Task
 	if len(args) > 0 {
 		// Push specific task
-		var task models.Task
-		if err := database.Where("id = ?", args[0]).First(&task).Error; err != nil {
+		task, err := db.GetTaskByID(args[0])
+		if err != nil {
 			return fmt.Errorf("task not found: %s", args[0])
 		}
-		tasks = append(tasks, task)
+		tasks = append(tasks, *task)
 	} else if syncPushAll {
 		// Push all tasks (open and closed, excluding archived)
 		if err := database.Where("status != ?", models.StatusArchived).

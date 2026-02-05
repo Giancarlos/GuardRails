@@ -30,10 +30,10 @@ func init() {
 
 func runClose(cmd *cobra.Command, args []string) error {
 	database := db.GetDB()
-	var task models.Task
 
 	// First, find the task
-	if err := database.Where("id = ?", args[0]).First(&task).Error; err != nil {
+	task, err := db.GetTaskByID(args[0])
+	if err != nil {
 		return fmt.Errorf("task not found: %s", args[0])
 	}
 

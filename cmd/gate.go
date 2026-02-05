@@ -238,8 +238,8 @@ func runGateList(cmd *cobra.Command, args []string) error {
 }
 
 func runGateShow(cmd *cobra.Command, args []string) error {
-	var gate models.Gate
-	if err := db.GetDB().Where("id = ?", args[0]).First(&gate).Error; err != nil {
+	gate, err := db.GetGateByID(args[0])
+	if err != nil {
 		return fmt.Errorf("gate not found: %s", args[0])
 	}
 
@@ -315,9 +315,9 @@ func runGateShow(cmd *cobra.Command, args []string) error {
 }
 
 func runGateResult(gateID string, result string) error {
-	var gate models.Gate
 	database := db.GetDB()
-	if err := database.Where("id = ?", gateID).First(&gate).Error; err != nil {
+	gate, err := db.GetGateByID(gateID)
+	if err != nil {
 		return fmt.Errorf("gate not found: %s", gateID)
 	}
 
@@ -351,14 +351,12 @@ func runGateLink(cmd *cobra.Command, args []string) error {
 	database := db.GetDB()
 
 	// Validate gate exists
-	var gate models.Gate
-	if err := database.Where("id = ?", gateID).First(&gate).Error; err != nil {
+	if _, err := db.GetGateByID(gateID); err != nil {
 		return fmt.Errorf("gate not found: %s", gateID)
 	}
 
 	// Validate task exists
-	var task models.Task
-	if err := database.Where("id = ?", taskID).First(&task).Error; err != nil {
+	if _, err := db.GetTaskByID(taskID); err != nil {
 		return fmt.Errorf("task not found: %s", taskID)
 	}
 

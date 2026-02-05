@@ -230,3 +230,21 @@ func GetConfig(key string) (string, error) {
 	}
 	return config.Value, nil
 }
+
+// GetTaskByID retrieves a task by its ID
+func GetTaskByID(id string) (*models.Task, error) {
+	var task models.Task
+	if err := GetDB().Where("id = ?", id).First(&task).Error; err != nil {
+		return nil, err
+	}
+	return &task, nil
+}
+
+// GetGateByID retrieves a gate by its ID
+func GetGateByID(id string) (*models.Gate, error) {
+	var gate models.Gate
+	if err := GetDB().Where("id = ?", id).First(&gate).Error; err != nil {
+		return nil, err
+	}
+	return &gate, nil
+}
