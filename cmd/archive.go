@@ -44,13 +44,13 @@ func init() {
 
 func parseDuration(s string) (time.Duration, error) {
 	if len(s) < 2 {
-		return 0, fmt.Errorf("invalid duration: %s", s)
+		return 0, fmt.Errorf("invalid duration '%s': format must be <number><unit> (e.g., 30d, 2w, 24h)", s)
 	}
 	unit := s[len(s)-1]
 	valueStr := s[:len(s)-1]
 	var value int
 	if _, err := fmt.Sscanf(valueStr, "%d", &value); err != nil {
-		return 0, fmt.Errorf("invalid duration value: %s", valueStr)
+		return 0, fmt.Errorf("invalid duration '%s': '%s' is not a valid number", s, valueStr)
 	}
 
 	switch unit {
@@ -61,7 +61,7 @@ func parseDuration(s string) (time.Duration, error) {
 	case 'h':
 		return time.Duration(value) * time.Hour, nil
 	default:
-		return 0, fmt.Errorf("invalid duration unit: %c (use d=days, w=weeks, h=hours)", unit)
+		return 0, fmt.Errorf("invalid duration '%s': unknown unit '%c' (use d=days, w=weeks, h=hours)", s, unit)
 	}
 }
 
@@ -71,14 +71,15 @@ func runArchive(cmd *cobra.Command, args []string) error {
 		taskID := args[0]
 		var task models.Task
 		if err := db.GetDB().First(&task, "id = ?", taskID).Error; err != nil {
-			return fmt.Errorf("task not found: %s", taskID)
+			return fmt.Errorf("cannot archive task: task '%s' not found (use 'gur list' to see available tasks)", taskID)
 		}
 		if task.Status != models.StatusClosed {
-			return fmt.Errorf("only closed tasks can be archived (current status: %s)", task.Status)
+			return fmt.Errorf("cannot archive task '%s': only closed tasks can be archived (current status: %s, close it first with 'gur close %s')",
+				taskID, task.Status, taskID)
 		}
 		task.Archive()
 		if err := db.GetDB().Save(&task).Error; err != nil {
-			return err
+			return fmt.Errorf("failed to archive task '%s': database error: %w", taskID, err)
 		}
 		if IsJSONOutput() {
 			OutputJSON(map[string]interface{}{"archived": taskID})
@@ -90,7 +91,7 @@ func runArchive(cmd *cobra.Command, args []string) error {
 
 	// Bulk archive
 	if !archiveAll && archiveBefore == "" {
-		return fmt.Errorf("specify a task ID, --all, or --before")
+		return fmt.Errorf("missing argument: specify a task ID, use --all for all closed tasks, or --before <duration> (e.g., --before 30d)")
 	}
 
 	query := db.GetDB().Model(&models.Task{}).Where("status = ?", models.StatusClosed)
@@ -106,7 +107,7 @@ func runArchive(cmd *cobra.Command, args []string) error {
 
 	result := query.Update("status", models.StatusArchived)
 	if result.Error != nil {
-		return result.Error
+		return fmt.Errorf("failed to archive tasks: database error: %w", result.Error)
 	}
 
 	if IsJSONOutput() {
@@ -121,14 +122,14 @@ func runUnarchive(cmd *cobra.Command, args []string) error {
 	taskID := args[0]
 	var task models.Task
 	if err := db.GetDB().First(&task, "id = ?", taskID).Error; err != nil {
-		return fmt.Errorf("task not found: %s", taskID)
+		return fmt.Errorf("cannot unarchive task: task '%s' not found (use 'gur list --archived' to see archived tasks)", taskID)
 	}
 	if task.Status != models.StatusArchived {
-		return fmt.Errorf("task is not archived (current status: %s)", task.Status)
+		return fmt.Errorf("cannot unarchive task '%s': task is not archived (current status: %s)", taskID, task.Status)
 	}
 	task.Unarchive()
 	if err := db.GetDB().Save(&task).Error; err != nil {
-		return err
+		return fmt.Errorf("failed to unarchive task '%s': database error: %w", taskID, err)
 	}
 	if IsJSONOutput() {
 		OutputJSON(map[string]interface{}{"unarchived": taskID})

@@ -60,7 +60,7 @@ func runSyncPush(cmd *cobra.Command, args []string) error {
 	// Get GitHub configuration
 	repo, err := db.GetConfig(models.ConfigGitHubRepo)
 	if err != nil || repo == "" {
-		return fmt.Errorf("GitHub not configured. Run 'gur config github' first")
+		return fmt.Errorf("GitHub sync not configured: repository not set (run 'gur config github' to configure)")
 	}
 
 	prefix, err := db.GetConfig(models.ConfigGitHubIssuePrefix)
@@ -76,7 +76,7 @@ func runSyncPush(cmd *cobra.Command, args []string) error {
 	// Parse owner/repo
 	parts := strings.SplitN(repo, "/", 2)
 	if len(parts) != 2 {
-		return fmt.Errorf("invalid repository format: %s", repo)
+		return fmt.Errorf("invalid repository format '%s': expected 'owner/repo' (run 'gur config github' to reconfigure)", repo)
 	}
 	owner, repoName := parts[0], parts[1]
 
@@ -103,7 +103,7 @@ func runSyncPush(cmd *cobra.Command, args []string) error {
 		// Push specific task
 		task, err := db.GetTaskByID(args[0])
 		if err != nil {
-			return fmt.Errorf("task not found: %s", args[0])
+			return fmt.Errorf("cannot sync task: task '%s' not found (use 'gur list' to see available tasks)", args[0])
 		}
 		tasks = append(tasks, *task)
 	} else if syncPushAll {

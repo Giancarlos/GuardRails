@@ -49,7 +49,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if createTemplate != "" {
 		var template models.Template
 		if err := db.GetDB().Where("name = ? OR id = ?", createTemplate, createTemplate).First(&template).Error; err != nil {
-			return fmt.Errorf("template not found: %s", createTemplate)
+			return fmt.Errorf("cannot create task: template '%s' not found (use 'gur template list' to see available templates)", createTemplate)
 		}
 		task = template.ToTask()
 	} else {
@@ -87,7 +87,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	// Validate priority range
 	if task.Priority < 0 || task.Priority > 4 {
-		return fmt.Errorf("priority must be between 0 and 4")
+		return fmt.Errorf("invalid priority %d: must be 0 (critical), 1 (high), 2 (medium), 3 (low), or 4 (lowest)", task.Priority)
 	}
 
 	// Validate type
@@ -98,7 +98,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		models.TypeEpic:    true,
 	}
 	if !validTypes[task.Type] {
-		return fmt.Errorf("invalid type: %s (must be task/bug/feature/epic)", task.Type)
+		return fmt.Errorf("invalid type '%s': must be one of: task, bug, feature, epic", task.Type)
 	}
 
 	database := db.GetDB()
@@ -107,10 +107,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if createParent != "" {
 		var parent models.Task
 		if err := database.First(&parent, "id = ?", createParent).Error; err != nil {
-			return fmt.Errorf("parent task not found: %s", createParent)
+			return fmt.Errorf("cannot create subtask: parent task '%s' not found (use 'gur list' to see available tasks)", createParent)
 		}
 		if parent.IsClosed() {
-			return fmt.Errorf("cannot create subtask of closed task")
+			return fmt.Errorf("cannot create subtask: parent task '%s' is closed (reopen it first with 'gur reopen %s')", createParent, createParent)
 		}
 
 		// Count existing subtasks to generate next number
@@ -121,7 +121,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := database.Create(task).Error; err != nil {
-		return err
+		return fmt.Errorf("failed to create task '%s': database error: %w", task.Title, err)
 	}
 
 	// Link skills

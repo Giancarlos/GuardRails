@@ -53,12 +53,12 @@ func init() {
 func runUpdate(cmd *cobra.Command, args []string) error {
 	task, err := db.GetTaskByID(args[0])
 	if err != nil {
-		return fmt.Errorf("task not found: %s", args[0])
+		return fmt.Errorf("cannot update task: task '%s' not found (use 'gur list' to see available tasks)", args[0])
 	}
 
 	// Prevent modifying closed tasks (except reopening via 'reopen' command)
 	if task.IsClosed() && cmd.Flags().Changed("status") && updateStatus != models.StatusClosed {
-		return fmt.Errorf("cannot change status of closed task. Use 'gur reopen' to reopen it first")
+		return fmt.Errorf("cannot change status of closed task '%s': use 'gur reopen %s' first", task.ID, task.ID)
 	}
 
 	// Track changes for audit trail
@@ -76,7 +76,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("priority") {
 		// Validate priority range
 		if updatePriority < 0 || updatePriority > 4 {
-			return fmt.Errorf("priority must be between 0 and 4")
+			return fmt.Errorf("invalid priority %d for task '%s': must be 0 (critical) to 4 (lowest)", updatePriority, task.ID)
 		}
 		models.RecordChange(database, task.ID, "priority", fmt.Sprintf("%d", task.Priority), fmt.Sprintf("%d", updatePriority), changedBy)
 		task.Priority = updatePriority
@@ -93,7 +93,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 			models.StatusClosed:     true,
 		}
 		if !validStatuses[updateStatus] {
-			return fmt.Errorf("invalid status: %s (must be open/in_progress/closed)", updateStatus)
+			return fmt.Errorf("invalid status '%s' for task '%s': must be one of: open, in_progress, closed", updateStatus, task.ID)
 		}
 		models.RecordChange(database, task.ID, "status", task.Status, updateStatus, changedBy)
 		task.Status = updateStatus
@@ -182,7 +182,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := database.Save(&task).Error; err != nil {
-		return err
+		return fmt.Errorf("failed to update task '%s': database error: %w", task.ID, err)
 	}
 
 	if IsJSONOutput() {

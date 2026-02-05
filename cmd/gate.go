@@ -240,7 +240,7 @@ func runGateList(cmd *cobra.Command, args []string) error {
 func runGateShow(cmd *cobra.Command, args []string) error {
 	gate, err := db.GetGateByID(args[0])
 	if err != nil {
-		return fmt.Errorf("gate not found: %s", args[0])
+		return fmt.Errorf("gate '%s' not found (use 'gur gate list' to see available gates)", args[0])
 	}
 
 	// Get linked tasks
@@ -318,13 +318,13 @@ func runGateResult(gateID string, result string) error {
 	database := db.GetDB()
 	gate, err := db.GetGateByID(gateID)
 	if err != nil {
-		return fmt.Errorf("gate not found: %s", gateID)
+		return fmt.Errorf("cannot update gate: gate '%s' not found (use 'gur gate list' to see available gates)", gateID)
 	}
 
 	// Record the run
 	gate.RecordRun(result, gateRunBy, gateNotes)
 	if err := database.Save(&gate).Error; err != nil {
-		return err
+		return fmt.Errorf("failed to update gate '%s': database error: %w", gateID, err)
 	}
 
 	// Also save to GateRun history
@@ -352,22 +352,22 @@ func runGateLink(cmd *cobra.Command, args []string) error {
 
 	// Validate gate exists
 	if _, err := db.GetGateByID(gateID); err != nil {
-		return fmt.Errorf("gate not found: %s", gateID)
+		return fmt.Errorf("cannot link gate: gate '%s' not found (use 'gur gate list' to see available gates)", gateID)
 	}
 
 	// Validate task exists
 	if _, err := db.GetTaskByID(taskID); err != nil {
-		return fmt.Errorf("task not found: %s", taskID)
+		return fmt.Errorf("cannot link gate: task '%s' not found (use 'gur list' to see available tasks)", taskID)
 	}
 
 	// Check if already linked
 	var existing models.GateTaskLink
 	err := database.Where("gate_id = ? AND task_id = ?", gateID, taskID).First(&existing).Error
 	if err == nil {
-		return fmt.Errorf("gate already linked to task")
+		return fmt.Errorf("cannot link gate: gate '%s' is already linked to task '%s'", gateID, taskID)
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return fmt.Errorf("failed to check existing link: %w", err)
+		return fmt.Errorf("cannot link gate: failed to check existing link: %w", err)
 	}
 
 	link := &models.GateTaskLink{
@@ -375,7 +375,7 @@ func runGateLink(cmd *cobra.Command, args []string) error {
 		TaskID: taskID,
 	}
 	if err := database.Create(link).Error; err != nil {
-		return err
+		return fmt.Errorf("failed to link gate '%s' to task '%s': database error: %w", gateID, taskID, err)
 	}
 
 	if IsJSONOutput() {
@@ -392,7 +392,8 @@ func runGateUnlink(cmd *cobra.Command, args []string) error {
 
 	result := db.GetDB().Where("gate_id = ? AND task_id = ?", gateID, taskID).Delete(&models.GateTaskLink{})
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("link not found")
+		return fmt.Errorf("cannot unlink gate: no link exists between gate '%s' and task '%s' (use 'gur gate show %s' to see linked tasks)",
+			gateID, taskID, gateID)
 	}
 
 	if IsJSONOutput() {

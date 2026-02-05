@@ -186,6 +186,19 @@ func (t *Task) BeforeCreate(tx *gorm.DB) error {
 	return nil
 }
 
+// AfterDelete hook to clean up orphaned dependencies when a task is deleted
+func (t *Task) AfterDelete(tx *gorm.DB) error {
+	// Soft-delete all dependencies where this task is the parent (blocker)
+	if err := tx.Where("parent_id = ?", t.ID).Delete(&Dependency{}).Error; err != nil {
+		return err
+	}
+	// Soft-delete all dependencies where this task is the child (blocked)
+	if err := tx.Where("child_id = ?", t.ID).Delete(&Dependency{}).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
 // IsClosed returns true if the task is closed
 func (t *Task) IsClosed() bool {
 	return t.Status == StatusClosed

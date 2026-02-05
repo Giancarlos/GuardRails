@@ -115,7 +115,7 @@ func runSkillAdd(cmd *cobra.Command, args []string) error {
 	// Check if already exists
 	var existing models.Skill
 	if err := db.GetDB().Where("name = ?", name).First(&existing).Error; err == nil {
-		return fmt.Errorf("skill '%s' already exists", name)
+		return fmt.Errorf("cannot add skill: skill '%s' already exists (use 'gur skill show %s' to view it)", name, name)
 	}
 
 	skill := models.Skill{
@@ -133,7 +133,7 @@ func runSkillAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := db.GetDB().Create(&skill).Error; err != nil {
-		return err
+		return fmt.Errorf("failed to register skill '%s': database error: %w", name, err)
 	}
 
 	if IsJSONOutput() {
@@ -149,16 +149,16 @@ func runSkillRemove(cmd *cobra.Command, args []string) error {
 
 	var skill models.Skill
 	if err := db.GetDB().Where("name = ?", name).First(&skill).Error; err != nil {
-		return fmt.Errorf("skill not found: %s", name)
+		return fmt.Errorf("cannot remove skill: skill '%s' not found (use 'gur skill list' to see registered skills)", name)
 	}
 
 	// Remove task links first
 	if err := db.GetDB().Where("skill_id = ?", skill.ID).Delete(&models.TaskSkillLink{}).Error; err != nil {
-		return fmt.Errorf("failed to remove skill links: %w", err)
+		return fmt.Errorf("failed to remove skill '%s': could not delete task links: %w", name, err)
 	}
 
 	if err := db.GetDB().Delete(&skill).Error; err != nil {
-		return err
+		return fmt.Errorf("failed to remove skill '%s': database error: %w", name, err)
 	}
 
 	if IsJSONOutput() {
@@ -174,7 +174,7 @@ func runSkillShow(cmd *cobra.Command, args []string) error {
 
 	var skill models.Skill
 	if err := db.GetDB().Where("name = ? OR id = ?", name, name).First(&skill).Error; err != nil {
-		return fmt.Errorf("skill not found: %s", name)
+		return fmt.Errorf("skill '%s' not found (use 'gur skill list' to see registered skills, or 'gur skill scan' to auto-discover)", name)
 	}
 
 	// Get linked tasks
