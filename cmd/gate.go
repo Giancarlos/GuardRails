@@ -422,8 +422,36 @@ func GetFailingGatesForTask(taskID string) ([]models.Gate, error) {
 	return failingGates, nil
 }
 
+// GetLinkedGatesForTask returns all gates linked to a task
+func GetLinkedGatesForTask(taskID string) ([]models.Gate, error) {
+	database := db.GetDB()
+
+	var gates []models.Gate
+	err := database.
+		Joins("JOIN gate_task_links ON gate_task_links.gate_id = gates.id").
+		Where("gate_task_links.task_id = ? AND gate_task_links.deleted_at IS NULL", taskID).
+		Find(&gates).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return gates, nil
+}
+
 // CheckGatesBeforeClose checks if all linked gates pass before allowing task close
+// Tasks MUST have at least one gate linked to be closed.
 func CheckGatesBeforeClose(taskID string) error {
+	linkedGates, err := GetLinkedGatesForTask(taskID)
+	if err != nil {
+		return err
+	}
+
+	// Require at least one gate to be linked
+	if len(linkedGates) == 0 {
+		return fmt.Errorf("Cannot close task: no gates linked.\n\nEvery task must have at least one gate before closing.\nLink a gate: gur gate link <gate-id> %s\nOr use --force to close anyway.", taskID)
+	}
+
 	failingGates, err := GetFailingGatesForTask(taskID)
 	if err != nil {
 		return err

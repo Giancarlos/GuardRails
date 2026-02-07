@@ -46,10 +46,10 @@ func TestCheckGatesBeforeClose(t *testing.T) {
 		t.Fatalf("Failed to create task: %v", err)
 	}
 
-	// Test 1: No gates linked - should pass
+	// Test 1: No gates linked - should FAIL (gates are required)
 	err := CheckGatesBeforeClose(task.ID)
-	if err != nil {
-		t.Errorf("CheckGatesBeforeClose() with no gates should pass, got: %v", err)
+	if err == nil {
+		t.Error("CheckGatesBeforeClose() with no gates should fail - gates are required")
 	}
 
 	// Create a gate
