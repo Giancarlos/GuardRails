@@ -3,6 +3,8 @@ package cmd
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -103,6 +105,8 @@ func runSyncPull(cmd *cobra.Command, args []string) error {
 	if hostname == "" {
 		hostname = "unknown"
 	}
+	// Hash hostname for privacy - first 8 chars of SHA256
+	hostnameHash := hashHostname(hostname)
 
 	// List issues from GitHub
 	state := "open"
@@ -234,7 +238,7 @@ func runSyncPull(cmd *cobra.Command, args []string) error {
 			RemoteUpdatedAt: &remoteUpdated,
 			SyncDirection:   models.SyncDirectionPull,
 			SyncedBy:        username,
-			SyncedMachine:   hostname,
+			SyncedMachine:   hostnameHash,
 		}
 		if err := database.Create(&link).Error; err != nil {
 			fmt.Fprintf(os.Stderr, "Error saving link for issue #%d: %v\n", issueNum, err)
@@ -242,7 +246,7 @@ func runSyncPull(cmd *cobra.Command, args []string) error {
 		}
 
 		// Post sync marker comment to GitHub
-		if err := postSyncMarker(ctx, client, owner, repoName, issueNum, task.ID, username, hostname); err != nil {
+		if err := postSyncMarker(ctx, client, owner, repoName, issueNum, task.ID, username, hostnameHash); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to post sync marker for issue #%d: %v\n", issueNum, err)
 		}
 
@@ -387,4 +391,10 @@ func postSyncMarker(ctx context.Context, client *github.Client, owner, repo stri
 	comment := &github.IssueComment{Body: &body}
 	_, _, err = client.Issues.CreateComment(ctx, owner, repo, issueNum, comment)
 	return err
+}
+
+// hashHostname creates a short hash of the hostname for privacy
+func hashHostname(hostname string) string {
+	h := sha256.Sum256([]byte(hostname))
+	return hex.EncodeToString(h[:])[:8] // First 8 hex chars
 }
