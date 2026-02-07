@@ -51,16 +51,111 @@ var configShowCmd = &cobra.Command{
 	RunE:  runConfigShow,
 }
 
+var configMachineCmd = &cobra.Command{
+	Use:   "machine",
+	Short: "Configure machine identity",
+	Long: `Set a friendly name for this machine and control whether it's shared in sync markers.
+
+By default, only a hash of your hostname is shown in GitHub sync markers.
+You can set a friendly name for local reference, and optionally share it.
+
+Examples:
+  gur config machine --name "Work MacBook"    # Set name locally
+  gur config machine --share                  # Opt-in to share name
+  gur config machine --no-share               # Stop sharing name
+  gur config machine --show                   # Show current settings`,
+	RunE: runConfigMachine,
+}
+
+var (
+	configMachineName     string
+	configMachineShare    bool
+	configMachineNoShare  bool
+	configMachineShowFlag bool
+)
+
 func init() {
 	rootCmd.AddCommand(configCmd)
 	configCmd.AddCommand(configShowCmd)
 	configCmd.AddCommand(configGitHubCmd)
+	configCmd.AddCommand(configMachineCmd)
+
+	configMachineCmd.Flags().StringVar(&configMachineName, "name", "", "Friendly name for this machine")
+	configMachineCmd.Flags().BoolVar(&configMachineShare, "share", false, "Share friendly name in sync markers")
+	configMachineCmd.Flags().BoolVar(&configMachineNoShare, "no-share", false, "Stop sharing friendly name")
+	configMachineCmd.Flags().BoolVar(&configMachineShowFlag, "show", false, "Show current machine config")
 
 	configGitHubCmd.Flags().StringVar(&configGitHubRepo, "repo", "", "GitHub repository (owner/repo)")
 	configGitHubCmd.Flags().StringVar(&configGitHubPrefix, "prefix", "", "Issue title prefix")
 	configGitHubCmd.Flags().StringVar(&configGitHubToken, "token", "", "GitHub token (use stdin for security)")
 	configGitHubCmd.Flags().BoolVar(&configGitHubShow, "show", false, "Show current configuration")
 	configGitHubCmd.Flags().BoolVar(&configGitHubClear, "clear", false, "Clear GitHub configuration")
+}
+
+func runConfigMachine(cmd *cobra.Command, args []string) error {
+	hostname, _ := os.Hostname()
+	if hostname == "" {
+		hostname = "unknown"
+	}
+	hostnameHash := hashHostname(hostname)
+
+	// Show current config
+	if configMachineShowFlag {
+		name, _ := db.GetConfig(models.ConfigMachineName)
+		shareStr, _ := db.GetConfig(models.ConfigMachineShare)
+		share := shareStr == "true"
+
+		if IsJSONOutput() {
+			OutputJSON(map[string]interface{}{
+				"hash":   hostnameHash,
+				"name":   name,
+				"shared": share,
+			})
+			return nil
+		}
+
+		fmt.Printf("Machine Hash: %s\n", hostnameHash)
+		if name != "" {
+			fmt.Printf("Name:         %s\n", name)
+		} else {
+			fmt.Println("Name:         (not set)")
+		}
+		if share {
+			fmt.Println("Sharing:      yes (name visible in sync markers)")
+		} else {
+			fmt.Println("Sharing:      no (only hash visible)")
+		}
+		return nil
+	}
+
+	// Set name
+	if configMachineName != "" {
+		if err := db.SetConfig(models.ConfigMachineName, configMachineName); err != nil {
+			return fmt.Errorf("failed to save machine name: %w", err)
+		}
+		fmt.Printf("Machine name set to: %s\n", configMachineName)
+	}
+
+	// Set sharing preference
+	if configMachineShare {
+		if err := db.SetConfig(models.ConfigMachineShare, "true"); err != nil {
+			return fmt.Errorf("failed to save share preference: %w", err)
+		}
+		fmt.Println("Machine name will be shared in sync markers")
+	}
+	if configMachineNoShare {
+		if err := db.SetConfig(models.ConfigMachineShare, "false"); err != nil {
+			return fmt.Errorf("failed to save share preference: %w", err)
+		}
+		fmt.Println("Machine name will NOT be shared in sync markers")
+	}
+
+	// If no flags, show help
+	if configMachineName == "" && !configMachineShare && !configMachineNoShare {
+		return cmd.Help()
+	}
+
+	return nil
 }
 
 func runConfigGitHub(cmd *cobra.Command, args []string) error {

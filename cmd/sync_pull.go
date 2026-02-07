@@ -108,6 +108,14 @@ func runSyncPull(cmd *cobra.Command, args []string) error {
 	// Hash hostname for privacy - first 8 chars of SHA256
 	hostnameHash := hashHostname(hostname)
 
+	// Check if user wants to share friendly name
+	machineDisplay := hostnameHash
+	if name, err := db.GetConfig(models.ConfigMachineName); err == nil && name != "" {
+		if share, err := db.GetConfig(models.ConfigMachineShare); err == nil && share == "true" {
+			machineDisplay = fmt.Sprintf("%s (%s)", name, hostnameHash)
+		}
+	}
+
 	// List issues from GitHub
 	state := "open"
 	if syncPullAll {
@@ -246,7 +254,7 @@ func runSyncPull(cmd *cobra.Command, args []string) error {
 		}
 
 		// Post sync marker comment to GitHub
-		if err := postSyncMarker(ctx, client, owner, repoName, issueNum, task.ID, username, hostnameHash); err != nil {
+		if err := postSyncMarker(ctx, client, owner, repoName, issueNum, task.ID, username, machineDisplay); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to post sync marker for issue #%d: %v\n", issueNum, err)
 		}
 

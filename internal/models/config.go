@@ -33,6 +33,12 @@ const (
 	ConfigGitHubTokenSet    = "github_token_set"    // "true" if token stored in keyring
 )
 
+// Machine config keys
+const (
+	ConfigMachineName  = "machine_name"  // Friendly name for this machine
+	ConfigMachineShare = "machine_share" // "true" to share name in sync markers
+)
+
 // Default values
 const (
 	DefaultGitHubIssuePrefix = "[Coding Agent]"
