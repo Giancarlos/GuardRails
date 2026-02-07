@@ -88,13 +88,28 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	if IsJSONOutput() {
 		OutputJSON(map[string]interface{}{"success": true, "path": guardrailsDir, "mode": mode})
-	} else {
-		modeStr := ""
-		if mode != models.ModeDefault {
-			modeStr = fmt.Sprintf(" (mode: %s)", mode)
-		}
-		fmt.Printf("GuardRails initialized in %s/%s\n", db.GuardrailsDir, modeStr)
+		return nil
 	}
+
+	modeStr := ""
+	if mode != models.ModeDefault {
+		modeStr = fmt.Sprintf(" (mode: %s)", mode)
+	}
+	fmt.Printf("GuardRails initialized in %s/%s\n", db.GuardrailsDir, modeStr)
+
+	// Detect git repo and offer helpful next steps
+	isGitRepo := false
+	if _, err := os.Stat(filepath.Join(cwd, ".git")); err == nil {
+		isGitRepo = true
+	}
+
+	fmt.Println("\nNext steps:")
+	fmt.Println("  gur create \"My first task\"     Create a task")
+	fmt.Println("  gur list                        List all tasks")
+	if isGitRepo {
+		fmt.Println("  gur config github               Setup GitHub sync (optional)")
+	}
+
 	return nil
 }
 
