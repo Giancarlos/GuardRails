@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -130,6 +131,18 @@ var gateUnlinkCmd = &cobra.Command{
 	RunE:  runGateUnlink,
 }
 
+var gateDeleteCmd = &cobra.Command{
+	Use:     "delete <gate-id>",
+	Aliases: []string{"rm"},
+	Short:   "Delete a gate",
+	Long: `Delete a gate permanently.
+
+Cannot delete a gate that is linked to open tasks.
+Unlink from open tasks first, or close those tasks.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runGateDelete,
+}
+
 var (
 	gateNotes string
 	gateRunBy string
@@ -145,6 +158,7 @@ func init() {
 	gateCmd.AddCommand(gateSkipCmd)
 	gateCmd.AddCommand(gateLinkCmd)
 	gateCmd.AddCommand(gateUnlinkCmd)
+	gateCmd.AddCommand(gateDeleteCmd)
 
 	// Create flags
 	gateCreateCmd.Flags().StringVarP(&gateCategory, "category", "c", "", "Category (e.g., auth, api, ui)")
@@ -418,17 +432,89 @@ func runGateLink(cmd *cobra.Command, args []string) error {
 
 func runGateUnlink(cmd *cobra.Command, args []string) error {
 	gateID, taskID := args[0], args[1]
+	database := db.GetDB()
 
-	result := db.GetDB().Where("gate_id = ? AND task_id = ?", gateID, taskID).Delete(&models.GateTaskLink{})
-	if result.RowsAffected == 0 {
+	// Find the link first to check its status
+	var link models.GateTaskLink
+	err := database.Where("gate_id = ? AND task_id = ?", gateID, taskID).First(&link).Error
+	if err != nil {
 		return fmt.Errorf("cannot unlink gate: no link exists between gate '%s' and task '%s' (use 'gur gate show %s' to see linked tasks)",
 			gateID, taskID, gateID)
 	}
 
+	// Warn if the link has verification status
+	if link.Status == models.GateLinkPassed {
+		fmt.Fprintf(os.Stderr, "WARNING: This gate was verified as PASSED for this task.\n")
+		fmt.Fprintf(os.Stderr, "Unlinking will delete this verification status.\n")
+		fmt.Fprintf(os.Stderr, "If you re-link, the gate will need to be verified again.\n\n")
+	} else if link.Status == models.GateLinkFailed {
+		fmt.Fprintf(os.Stderr, "WARNING: This gate has a FAILED status for this task.\n")
+		fmt.Fprintf(os.Stderr, "Unlinking will delete this status record.\n\n")
+	}
+
+	// Delete the link
+	if err := database.Delete(&link).Error; err != nil {
+		return fmt.Errorf("failed to unlink gate: %w", err)
+	}
+
 	if IsJSONOutput() {
-		OutputJSON(map[string]interface{}{"success": true})
+		OutputJSON(map[string]interface{}{"success": true, "warning": link.Status != "" && link.Status != models.GateLinkPending})
 	} else {
 		fmt.Println("Unlinked gate from task")
+		fmt.Println("Note: Any verification status for this task-gate pair has been deleted.")
+	}
+	return nil
+}
+
+func runGateDelete(cmd *cobra.Command, args []string) error {
+	gateID := args[0]
+	database := db.GetDB()
+
+	// Check gate exists
+	gate, err := db.GetGateByID(gateID)
+	if err != nil {
+		return fmt.Errorf("cannot delete gate: gate '%s' not found", gateID)
+	}
+
+	// Check for linked open tasks
+	var openTaskLinks []models.GateTaskLink
+	err = database.
+		Joins("JOIN tasks ON tasks.id = gate_task_links.task_id").
+		Where("gate_task_links.gate_id = ? AND gate_task_links.deleted_at IS NULL", gateID).
+		Where("tasks.status NOT IN ?", []string{models.StatusClosed, models.StatusArchived}).
+		Find(&openTaskLinks).Error
+	if err != nil {
+		return fmt.Errorf("failed to check linked tasks: %w", err)
+	}
+
+	if len(openTaskLinks) > 0 {
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("Cannot delete gate '%s': linked to %d open task(s):\n", gateID, len(openTaskLinks)))
+		for _, link := range openTaskLinks {
+			sb.WriteString(fmt.Sprintf("  - %s\n", link.TaskID))
+		}
+		sb.WriteString("\nUnlink from these tasks first, or close them:\n")
+		for _, link := range openTaskLinks {
+			sb.WriteString(fmt.Sprintf("  gur gate unlink %s %s\n", gateID, link.TaskID))
+		}
+		return fmt.Errorf("%s", sb.String())
+	}
+
+	// Delete all links to this gate (for closed/archived tasks)
+	database.Where("gate_id = ?", gateID).Delete(&models.GateTaskLink{})
+
+	// Delete gate runs
+	database.Where("gate_id = ?", gateID).Delete(&models.GateRun{})
+
+	// Delete the gate
+	if err := database.Delete(gate).Error; err != nil {
+		return fmt.Errorf("failed to delete gate: %w", err)
+	}
+
+	if IsJSONOutput() {
+		OutputJSON(map[string]interface{}{"success": true, "deleted": gateID})
+	} else {
+		fmt.Printf("Deleted gate: %s - %s\n", gate.ID, gate.Title)
 	}
 	return nil
 }

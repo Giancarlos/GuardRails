@@ -1,10 +1,13 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"guardrails/internal/db"
 	"guardrails/internal/models"
@@ -64,6 +67,43 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	// Track changes for audit trail
 	database := db.GetDB()
 	changedBy := "user" // Could be enhanced to track actual user
+
+	// Check if scope-changing fields are being modified and gates have passed
+	scopeChanging := cmd.Flags().Changed("title") || cmd.Flags().Changed("description") || cmd.Flags().Changed("type")
+	if scopeChanging {
+		// Check for passed gates on this task
+		var passedLinks []models.GateTaskLink
+		database.Where("task_id = ? AND status = ?", task.ID, models.GateLinkPassed).Find(&passedLinks)
+
+		if len(passedLinks) > 0 {
+			fmt.Fprintf(os.Stderr, "WARNING: This task has %d gate(s) that have already passed.\n", len(passedLinks))
+			fmt.Fprintf(os.Stderr, "Changing title, description, or type may affect the scope of verified work.\n\n")
+
+			// Show which gates passed
+			for _, link := range passedLinks {
+				gate, _ := db.GetGateByID(link.GateID)
+				if gate != nil {
+					fmt.Fprintf(os.Stderr, "  - %s: %s (passed)\n", gate.ID, gate.Title)
+				}
+			}
+			fmt.Fprintln(os.Stderr)
+
+			// Require interactive confirmation
+			if !term.IsTerminal(int(os.Stdin.Fd())) {
+				return fmt.Errorf("scope-changing update requires interactive confirmation when gates have passed.\nRe-run in an interactive terminal to confirm.")
+			}
+
+			fmt.Print("Do you want to proceed with this update? (yes/no): ")
+			reader := bufio.NewReader(os.Stdin)
+			confirmation, _ := reader.ReadString('\n')
+			confirmation = strings.TrimSpace(strings.ToLower(confirmation))
+
+			if confirmation != "yes" {
+				return fmt.Errorf("update cancelled")
+			}
+			fmt.Println()
+		}
+	}
 
 	if cmd.Flags().Changed("title") {
 		models.RecordChange(database, task.ID, "title", task.Title, updateTitle, changedBy)
