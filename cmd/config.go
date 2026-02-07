@@ -45,8 +45,15 @@ var (
 	configGitHubClear  bool
 )
 
+var configShowCmd = &cobra.Command{
+	Use:   "show",
+	Short: "Show all configuration",
+	RunE:  runConfigShow,
+}
+
 func init() {
 	rootCmd.AddCommand(configCmd)
+	configCmd.AddCommand(configShowCmd)
 	configCmd.AddCommand(configGitHubCmd)
 
 	configGitHubCmd.Flags().StringVar(&configGitHubRepo, "repo", "", "GitHub repository (owner/repo)")
@@ -74,6 +81,77 @@ func runConfigGitHub(cmd *cobra.Command, args []string) error {
 
 	// Interactive mode
 	return configureGitHubInteractive()
+}
+
+func runConfigShow(cmd *cobra.Command, args []string) error {
+	// Get database path
+	dbPath, _ := db.GetDefaultDBPath()
+
+	// Get mode
+	mode := "default"
+	if modeConfig, err := db.GetConfig(models.ConfigMode); err == nil {
+		mode = modeConfig
+	}
+
+	// Get schema version
+	schema := "unknown"
+	if schemaConfig, err := db.GetConfig(models.ConfigSchemaVersion); err == nil {
+		schema = schemaConfig
+	}
+
+	// Get initialized at
+	initializedAt := ""
+	if initConfig, err := db.GetConfig(models.ConfigInitializedAt); err == nil {
+		initializedAt = initConfig
+	}
+
+	// Get GitHub config
+	repo, _ := db.GetConfig(models.ConfigGitHubRepo)
+	prefix := models.DefaultGitHubIssuePrefix
+	if p, err := db.GetConfig(models.ConfigGitHubIssuePrefix); err == nil {
+		prefix = p
+	}
+	_, tokenErr := keyring.Get(models.KeyringServiceName, models.KeyringGitHubTokenKey)
+	tokenSet := tokenErr == nil
+
+	if IsJSONOutput() {
+		OutputJSON(map[string]interface{}{
+			"database":       dbPath,
+			"mode":           mode,
+			"schema_version": schema,
+			"initialized_at": initializedAt,
+			"github": map[string]interface{}{
+				"repository":   repo,
+				"issue_prefix": prefix,
+				"token_set":    tokenSet,
+			},
+		})
+		return nil
+	}
+
+	fmt.Println("Configuration")
+	fmt.Println("=============")
+	fmt.Printf("Database:     %s\n", dbPath)
+	fmt.Printf("Mode:         %s\n", mode)
+	fmt.Printf("Schema:       %s\n", schema)
+	if initializedAt != "" {
+		fmt.Printf("Initialized:  %s\n", initializedAt)
+	}
+
+	fmt.Println("\nGitHub:")
+	if repo != "" {
+		fmt.Printf("  Repository:   %s\n", repo)
+		fmt.Printf("  Issue Prefix: %s\n", prefix)
+		if tokenSet {
+			fmt.Println("  Token:        (stored in keyring)")
+		} else {
+			fmt.Println("  Token:        (not configured)")
+		}
+	} else {
+		fmt.Println("  (not configured)")
+	}
+
+	return nil
 }
 
 func showGitHubConfig() error {
