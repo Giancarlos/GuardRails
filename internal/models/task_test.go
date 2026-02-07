@@ -5,6 +5,119 @@ import (
 	"time"
 )
 
+// StringSlice serialization tests
+
+func TestStringSliceScan(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    interface{}
+		expected []string
+		wantErr  bool
+	}{
+		{"nil value", nil, []string{}, false},
+		{"empty bytes", []byte{}, []string{}, false},
+		{"empty string", "", []string{}, false},
+		{"empty array", []byte("[]"), []string{}, false},
+		{"single item", []byte(`["bug"]`), []string{"bug"}, false},
+		{"multiple items", []byte(`["bug","urgent","security"]`), []string{"bug", "urgent", "security"}, false},
+		{"special chars", []byte(`["label with spaces","quote\"here"]`), []string{"label with spaces", `quote"here`}, false},
+		{"unicode", []byte(`["日本語","émoji 🎉"]`), []string{"日本語", "émoji 🎉"}, false},
+		{"invalid json", []byte(`not json`), nil, true},
+		{"wrong type int", 123, nil, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var s StringSlice
+			err := s.Scan(tt.input)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("Scan() expected error, got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Scan() unexpected error: %v", err)
+				return
+			}
+
+			if len(s) != len(tt.expected) {
+				t.Errorf("Scan() len = %d, want %d", len(s), len(tt.expected))
+				return
+			}
+
+			for i, v := range s {
+				if v != tt.expected[i] {
+					t.Errorf("Scan()[%d] = %q, want %q", i, v, tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
+func TestStringSliceValue(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    StringSlice
+		expected string
+	}{
+		{"nil slice", nil, "[]"},
+		{"empty slice", StringSlice{}, "[]"},
+		{"single item", StringSlice{"bug"}, `["bug"]`},
+		{"multiple items", StringSlice{"bug", "urgent"}, `["bug","urgent"]`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			val, err := tt.input.Value()
+			if err != nil {
+				t.Errorf("Value() error: %v", err)
+				return
+			}
+
+			str, ok := val.(string)
+			if !ok {
+				t.Errorf("Value() type = %T, want string", val)
+				return
+			}
+
+			if str != tt.expected {
+				t.Errorf("Value() = %q, want %q", str, tt.expected)
+			}
+		})
+	}
+}
+
+func TestStringSliceRoundTrip(t *testing.T) {
+	original := StringSlice{"bug", "urgent", "label with spaces", "quote\"here"}
+
+	// Serialize
+	val, err := original.Value()
+	if err != nil {
+		t.Fatalf("Value() error: %v", err)
+	}
+
+	// Deserialize
+	var restored StringSlice
+	err = restored.Scan([]byte(val.(string)))
+	if err != nil {
+		t.Fatalf("Scan() error: %v", err)
+	}
+
+	// Compare
+	if len(restored) != len(original) {
+		t.Fatalf("Round-trip len = %d, want %d", len(restored), len(original))
+	}
+
+	for i, v := range restored {
+		if v != original[i] {
+			t.Errorf("Round-trip[%d] = %q, want %q", i, v, original[i])
+		}
+	}
+}
+
 func TestGenerateID(t *testing.T) {
 	id := GenerateID()
 
