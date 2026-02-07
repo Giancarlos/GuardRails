@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"gorm.io/gorm"
@@ -75,35 +76,37 @@ var gateShowCmd = &cobra.Command{
 }
 
 var gatePassCmd = &cobra.Command{
-	Use:   "pass <gate-id>",
-	Short: "Mark a gate as passed",
-	Long: `Mark a gate as passed.
+	Use:   "pass <gate-id> <task-id>",
+	Short: "Mark a gate as passed for a specific task",
+	Long: `Mark a gate as passed for a specific task.
+
+Each task requires its own gate verification - you cannot reuse a previous pass.
 
 Examples:
-  gur gate pass gate-abc123
-  gur gate pass gate-abc123 --notes "All tests green"
-  gur gate pass gate-abc123 --by agent`,
-	Args: cobra.ExactArgs(1),
+  gur gate pass gate-abc123 gur-def456
+  gur gate pass gate-abc123 gur-def456 --notes "All tests green"
+  gur gate pass gate-abc123 gur-def456 --by agent`,
+	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runGateResult(args[0], models.GatePassed)
+		return runGateResult(args[0], args[1], models.GateLinkPassed)
 	},
 }
 
 var gateFailCmd = &cobra.Command{
-	Use:   "fail <gate-id>",
-	Short: "Mark a gate as failed",
-	Args:  cobra.ExactArgs(1),
+	Use:   "fail <gate-id> <task-id>",
+	Short: "Mark a gate as failed for a specific task",
+	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runGateResult(args[0], models.GateFailed)
+		return runGateResult(args[0], args[1], models.GateLinkFailed)
 	},
 }
 
 var gateSkipCmd = &cobra.Command{
-	Use:   "skip <gate-id>",
-	Short: "Mark a gate as skipped",
-	Args:  cobra.ExactArgs(1),
+	Use:   "skip <gate-id> <task-id>",
+	Short: "Mark a gate as skipped for a specific task (still blocks close)",
+	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runGateResult(args[0], models.GateSkipped)
+		return runGateResult(args[0], args[1], models.GateSkipped)
 	},
 }
 
@@ -291,14 +294,14 @@ func runGateShow(cmd *cobra.Command, args []string) error {
 		gate.RunCount, gate.PassCount, gate.FailCount, gate.PassRate())
 
 	if len(links) > 0 {
-		fmt.Printf("\nLinked tasks: ")
-		for i, l := range links {
-			if i > 0 {
-				fmt.Print(", ")
+		fmt.Println("\nLinked tasks:")
+		for _, l := range links {
+			status := l.Status
+			if status == "" {
+				status = "pending"
 			}
-			fmt.Print(l.TaskID)
+			fmt.Printf("  %s (%s)\n", l.TaskID, status)
 		}
-		fmt.Println()
 	}
 
 	if len(runs) > 0 {
@@ -314,20 +317,44 @@ func runGateShow(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runGateResult(gateID string, result string) error {
+func runGateResult(gateID string, taskID string, result string) error {
 	database := db.GetDB()
+
+	// Validate gate exists
 	gate, err := db.GetGateByID(gateID)
 	if err != nil {
 		return fmt.Errorf("cannot update gate: gate '%s' not found (use 'gur gate list' to see available gates)", gateID)
 	}
 
-	// Record the run
-	gate.RecordRun(result, gateRunBy, gateNotes)
-	if err := database.Save(&gate).Error; err != nil {
-		return fmt.Errorf("failed to update gate '%s': database error: %w", gateID, err)
+	// Validate task exists
+	task, err := db.GetTaskByID(taskID)
+	if err != nil {
+		return fmt.Errorf("cannot update gate: task '%s' not found (use 'gur list' to see available tasks)", taskID)
 	}
 
-	// Also save to GateRun history
+	// Find the link between gate and task
+	var link models.GateTaskLink
+	err = database.Where("gate_id = ? AND task_id = ?", gateID, taskID).First(&link).Error
+	if err != nil {
+		return fmt.Errorf("cannot update gate: gate '%s' is not linked to task '%s'\nLink it first: gur gate link %s %s", gateID, taskID, gateID, taskID)
+	}
+
+	// Update the per-task link status
+	now := time.Now()
+	link.Status = result
+	link.VerifiedAt = &now
+	link.VerifiedBy = gateRunBy
+	link.Notes = gateNotes
+	if err := database.Save(&link).Error; err != nil {
+		return fmt.Errorf("failed to update gate link: %w", err)
+	}
+
+	// Also update global gate stats and save to GateRun history for audit
+	gate.RecordRun(result, gateRunBy, gateNotes)
+	if err := database.Save(&gate).Error; err != nil {
+		return fmt.Errorf("failed to update gate stats: %w", err)
+	}
+
 	run := &models.GateRun{
 		GateID: gateID,
 		Result: result,
@@ -339,9 +366,9 @@ func runGateResult(gateID string, result string) error {
 	}
 
 	if IsJSONOutput() {
-		OutputJSON(map[string]interface{}{"success": true, "gate": gate, "run": run})
+		OutputJSON(map[string]interface{}{"success": true, "gate": gate, "task": task, "link": link})
 	} else {
-		fmt.Printf("Recorded: %s - %s (%s by %s)\n", gate.ID, gate.Title, result, gateRunBy)
+		fmt.Printf("Verified: %s for task %s (%s by %s)\n", gate.Title, taskID, result, gateRunBy)
 	}
 	return nil
 }
@@ -373,6 +400,7 @@ func runGateLink(cmd *cobra.Command, args []string) error {
 	link := &models.GateTaskLink{
 		GateID: gateID,
 		TaskID: taskID,
+		Status: models.GateLinkPending,
 	}
 	if err := database.Create(link).Error; err != nil {
 		return fmt.Errorf("failed to link gate '%s' to task '%s': database error: %w", gateID, taskID, err)
@@ -381,8 +409,9 @@ func runGateLink(cmd *cobra.Command, args []string) error {
 	if IsJSONOutput() {
 		OutputJSON(map[string]interface{}{"success": true, "link": link})
 	} else {
-		fmt.Printf("Linked: %s -> %s\n", gateID, taskID)
-		fmt.Println("Task cannot be closed until this gate passes.")
+		fmt.Printf("Linked: %s -> %s (status: pending)\n", gateID, taskID)
+		fmt.Println("Task cannot be closed until this gate is verified for this task.")
+		fmt.Printf("Verify with: gur gate pass %s %s\n", gateID, taskID)
 	}
 	return nil
 }
@@ -404,22 +433,53 @@ func runGateUnlink(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// GetFailingGatesForTask returns gates linked to a task that haven't passed
-func GetFailingGatesForTask(taskID string) ([]models.Gate, error) {
+// GateLinkInfo contains gate info with its per-task link status
+type GateLinkInfo struct {
+	Gate   models.Gate
+	Link   models.GateTaskLink
+	Status string
+}
+
+// GetGateLinksForTask returns all gate links for a task with their per-task status
+func GetGateLinksForTask(taskID string) ([]GateLinkInfo, error) {
 	database := db.GetDB()
 
-	var failingGates []models.Gate
-	err := database.
-		Joins("JOIN gate_task_links ON gate_task_links.gate_id = gates.id").
-		Where("gate_task_links.task_id = ? AND gate_task_links.deleted_at IS NULL", taskID).
-		Where("gates.last_result != ?", models.GatePassed).
-		Find(&failingGates).Error
+	var links []models.GateTaskLink
+	if err := database.Where("task_id = ? AND deleted_at IS NULL", taskID).Find(&links).Error; err != nil {
+		return nil, err
+	}
 
+	var result []GateLinkInfo
+	for _, link := range links {
+		gate, err := db.GetGateByID(link.GateID)
+		if err != nil {
+			continue
+		}
+		result = append(result, GateLinkInfo{
+			Gate:   *gate,
+			Link:   link,
+			Status: link.Status,
+		})
+	}
+
+	return result, nil
+}
+
+// GetFailingGateLinksForTask returns gates linked to a task where the per-task status is not "passed"
+func GetFailingGateLinksForTask(taskID string) ([]GateLinkInfo, error) {
+	links, err := GetGateLinksForTask(taskID)
 	if err != nil {
 		return nil, err
 	}
 
-	return failingGates, nil
+	var failing []GateLinkInfo
+	for _, info := range links {
+		if info.Status != models.GateLinkPassed {
+			failing = append(failing, info)
+		}
+	}
+
+	return failing, nil
 }
 
 // GetLinkedGatesForTask returns all gates linked to a task
@@ -439,32 +499,40 @@ func GetLinkedGatesForTask(taskID string) ([]models.Gate, error) {
 	return gates, nil
 }
 
-// CheckGatesBeforeClose checks if all linked gates pass before allowing task close
+// CheckGatesBeforeClose checks if all linked gates have been verified as passed for this specific task.
 // Tasks MUST have at least one gate linked to be closed.
+// Each gate must be verified per-task - global gate status is not sufficient.
 func CheckGatesBeforeClose(taskID string) error {
-	linkedGates, err := GetLinkedGatesForTask(taskID)
+	gateLinks, err := GetGateLinksForTask(taskID)
 	if err != nil {
 		return err
 	}
 
 	// Require at least one gate to be linked
-	if len(linkedGates) == 0 {
-		return fmt.Errorf("Cannot close task: no gates linked.\n\nEvery task must have at least one gate before closing.\nLink a gate: gur gate link <gate-id> %s\nOr use --force to close anyway.", taskID)
+	if len(gateLinks) == 0 {
+		return fmt.Errorf("Cannot close task: no gates linked.\n\nEvery task must have at least one gate before closing.\nLink a gate: gur gate link <gate-id> %s\nOr use --force to close anyway (requires interactive confirmation).", taskID)
 	}
 
-	failingGates, err := GetFailingGatesForTask(taskID)
+	failingLinks, err := GetFailingGateLinksForTask(taskID)
 	if err != nil {
 		return err
 	}
 
-	if len(failingGates) > 0 {
+	if len(failingLinks) > 0 {
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("Cannot close task: %d gate(s) have not passed:\n", len(failingGates)))
-		for _, g := range failingGates {
-			sb.WriteString(fmt.Sprintf("  - %s: %s (%s)\n", g.ID, g.Title, g.ResultString()))
+		sb.WriteString(fmt.Sprintf("Cannot close task: %d gate(s) not verified for this task:\n", len(failingLinks)))
+		for _, info := range failingLinks {
+			status := info.Status
+			if status == "" {
+				status = "pending"
+			}
+			sb.WriteString(fmt.Sprintf("  - %s: %s (status: %s)\n", info.Gate.ID, info.Gate.Title, status))
 		}
-		sb.WriteString("\nMark gates as passed: gur gate pass <gate-id>")
-		sb.WriteString("\nOr use --force to close anyway.")
+		sb.WriteString(fmt.Sprintf("\nVerify gates for this task:\n"))
+		for _, info := range failingLinks {
+			sb.WriteString(fmt.Sprintf("  gur gate pass %s %s\n", info.Gate.ID, taskID))
+		}
+		sb.WriteString("\nOr use --force to close anyway (requires interactive confirmation).")
 		return fmt.Errorf("%s", sb.String())
 	}
 

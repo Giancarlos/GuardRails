@@ -68,13 +68,25 @@ func (Gate) TableName() string {
 	return "gates"
 }
 
+// Gate link status constants
+const (
+	GateLinkPending = "pending"
+	GateLinkPassed  = "passed"
+	GateLinkFailed  = "failed"
+)
+
 // GateTaskLink links gates to tasks (many-to-many)
+// Each link has its own verification status - gates must be verified per-task
 type GateTaskLink struct {
-	ID        uint           `gorm:"primaryKey" json:"id"`
-	GateID    string         `gorm:"size:20;not null;index" json:"gate_id"`
-	TaskID    string         `gorm:"size:20;not null;index" json:"task_id"`
-	CreatedAt time.Time      `gorm:"autoCreateTime" json:"created_at"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+	ID         uint           `gorm:"primaryKey" json:"id"`
+	GateID     string         `gorm:"size:20;not null;index" json:"gate_id"`
+	TaskID     string         `gorm:"size:20;not null;index" json:"task_id"`
+	Status     string         `gorm:"size:20;default:pending" json:"status"` // pending, passed, failed
+	VerifiedAt *time.Time     `json:"verified_at,omitempty"`
+	VerifiedBy string         `gorm:"size:100" json:"verified_by,omitempty"` // human, agent, or name
+	Notes      string         `gorm:"type:text" json:"notes,omitempty"`
+	CreatedAt  time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	DeletedAt  gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 // TableName specifies the table name for GateTaskLink

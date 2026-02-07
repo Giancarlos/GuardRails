@@ -1,9 +1,13 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"guardrails/internal/db"
 	"guardrails/internal/models"
@@ -42,6 +46,9 @@ func runClose(cmd *cobra.Command, args []string) error {
 			task.ID, task.ClosedAt.Format(models.DateTimeShortFormat), task.CloseReason)
 	}
 
+	// Collect all gate check failures for force confirmation
+	var gateCheckErr error
+
 	if !closeForce {
 		// Check for open blockers
 		var blockerCount int64
@@ -71,6 +78,39 @@ func runClose(cmd *cobra.Command, args []string) error {
 		if err := CheckGatesBeforeClose(task.ID); err != nil {
 			return err
 		}
+	} else {
+		// --force was specified - require interactive confirmation
+		// First check what we're bypassing
+		gateCheckErr = CheckGatesBeforeClose(task.ID)
+
+		if gateCheckErr != nil {
+			// Require interactive terminal
+			if !term.IsTerminal(int(os.Stdin.Fd())) {
+				return fmt.Errorf("--force requires interactive confirmation.\nCannot bypass gates from non-interactive terminal (e.g., scripts or AI agents).\n\n%s", gateCheckErr)
+			}
+
+			fmt.Println("WARNING: You are bypassing gate requirements!")
+			fmt.Println()
+			fmt.Println(gateCheckErr)
+			fmt.Println()
+			fmt.Printf("Task: %s - %s\n", task.ID, task.Title)
+			fmt.Println()
+			fmt.Print("Type 'yes' to force close this task: ")
+
+			reader := bufio.NewReader(os.Stdin)
+			confirmation, _ := reader.ReadString('\n')
+			confirmation = strings.TrimSpace(strings.ToLower(confirmation))
+
+			if confirmation != "yes" {
+				return fmt.Errorf("force close cancelled")
+			}
+
+			fmt.Println()
+			fmt.Println("Force closing task...")
+
+			// Record that this was a force close
+			closeReason = "[FORCE CLOSED] " + closeReason
+		}
 	}
 
 	// Record history and close
@@ -82,7 +122,7 @@ func runClose(cmd *cobra.Command, args []string) error {
 	}
 
 	if IsJSONOutput() {
-		OutputJSON(map[string]interface{}{"success": true, "task": task})
+		OutputJSON(map[string]interface{}{"success": true, "task": task, "forced": closeForce && gateCheckErr != nil})
 	} else {
 		fmt.Printf("Closed: %s\n", task.ID)
 	}

@@ -54,59 +54,59 @@ func TestCheckGatesBeforeClose(t *testing.T) {
 
 	// Create a gate
 	gate := &models.Gate{
-		ID:         "gate-testtest",
-		Title:      "Test Gate",
-		Type:       "test",
-		LastResult: models.GatePending,
+		ID:    "gate-testtest",
+		Title: "Test Gate",
+		Type:  "test",
 	}
 	if err := database.Create(gate).Error; err != nil {
 		t.Fatalf("Failed to create gate: %v", err)
 	}
 
-	// Link gate to task
+	// Link gate to task with pending status (per-task verification)
 	link := &models.GateTaskLink{
 		GateID: gate.ID,
 		TaskID: task.ID,
+		Status: models.GateLinkPending,
 	}
 	if err := database.Create(link).Error; err != nil {
 		t.Fatalf("Failed to create link: %v", err)
 	}
 
-	// Test 2: Gate pending - should fail
+	// Test 2: Link status pending - should fail
 	err = CheckGatesBeforeClose(task.ID)
 	if err == nil {
-		t.Error("CheckGatesBeforeClose() with pending gate should fail")
+		t.Error("CheckGatesBeforeClose() with pending link should fail")
 	}
 
-	// Test 3: Gate failed - should fail
-	gate.LastResult = models.GateFailed
-	database.Save(gate)
+	// Test 3: Link status failed - should fail
+	link.Status = models.GateLinkFailed
+	database.Save(link)
 
 	err = CheckGatesBeforeClose(task.ID)
 	if err == nil {
-		t.Error("CheckGatesBeforeClose() with failed gate should fail")
+		t.Error("CheckGatesBeforeClose() with failed link should fail")
 	}
 
-	// Test 4: Gate passed - should pass
-	gate.LastResult = models.GatePassed
-	database.Save(gate)
+	// Test 4: Link status passed - should pass
+	link.Status = models.GateLinkPassed
+	database.Save(link)
 
 	err = CheckGatesBeforeClose(task.ID)
 	if err != nil {
-		t.Errorf("CheckGatesBeforeClose() with passed gate should pass, got: %v", err)
+		t.Errorf("CheckGatesBeforeClose() with passed link should pass, got: %v", err)
 	}
 
-	// Test 5: Gate skipped - blocks close (only passed gates allow close)
-	gate.LastResult = models.GateSkipped
-	database.Save(gate)
+	// Test 5: Empty status (legacy) - blocks close
+	link.Status = ""
+	database.Save(link)
 
 	err = CheckGatesBeforeClose(task.ID)
 	if err == nil {
-		t.Error("CheckGatesBeforeClose() with skipped gate should fail (only passed gates allow close)")
+		t.Error("CheckGatesBeforeClose() with empty status should fail")
 	}
 }
 
-func TestGetFailingGatesForTask(t *testing.T) {
+func TestGetFailingGateLinksForTask(t *testing.T) {
 	cleanup := setupTestDB(t)
 	defer cleanup()
 
@@ -120,34 +120,41 @@ func TestGetFailingGatesForTask(t *testing.T) {
 	}
 	database.Create(task)
 
-	// Create gates with different statuses
+	// Create gates and links with different per-task statuses
 	gates := []*models.Gate{
-		{ID: "gate-pass0001", Title: "Passed Gate", LastResult: models.GatePassed},
-		{ID: "gate-fail0001", Title: "Failed Gate", LastResult: models.GateFailed},
-		{ID: "gate-pend0001", Title: "Pending Gate", LastResult: models.GatePending},
-		{ID: "gate-skip0001", Title: "Skipped Gate", LastResult: models.GateSkipped},
+		{ID: "gate-pass0001", Title: "Passed Gate"},
+		{ID: "gate-fail0001", Title: "Failed Gate"},
+		{ID: "gate-pend0001", Title: "Pending Gate"},
+	}
+
+	links := []*models.GateTaskLink{
+		{GateID: "gate-pass0001", TaskID: task.ID, Status: models.GateLinkPassed},
+		{GateID: "gate-fail0001", TaskID: task.ID, Status: models.GateLinkFailed},
+		{GateID: "gate-pend0001", TaskID: task.ID, Status: models.GateLinkPending},
 	}
 
 	for _, g := range gates {
 		database.Create(g)
-		database.Create(&models.GateTaskLink{GateID: g.ID, TaskID: task.ID})
+	}
+	for _, l := range links {
+		database.Create(l)
 	}
 
-	// Get failing gates
-	failing, err := GetFailingGatesForTask(task.ID)
+	// Get failing gate links (per-task status check)
+	failing, err := GetFailingGateLinksForTask(task.ID)
 	if err != nil {
-		t.Fatalf("GetFailingGatesForTask() error: %v", err)
+		t.Fatalf("GetFailingGateLinksForTask() error: %v", err)
 	}
 
-	// Should have 3 failing gates (failed, pending, skipped - only passed allows close)
-	if len(failing) != 3 {
-		t.Errorf("GetFailingGatesForTask() returned %d gates, want 3", len(failing))
+	// Should have 2 failing (failed + pending - only passed allows close)
+	if len(failing) != 2 {
+		t.Errorf("GetFailingGateLinksForTask() returned %d, want 2", len(failing))
 	}
 
 	// Verify passed gate is NOT in failing list
-	for _, g := range failing {
-		if g.LastResult == models.GatePassed {
-			t.Error("GetFailingGatesForTask() should not include passed gates")
+	for _, info := range failing {
+		if info.Status == models.GateLinkPassed {
+			t.Error("GetFailingGateLinksForTask() should not include passed links")
 		}
 	}
 }
