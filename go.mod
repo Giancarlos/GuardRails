@@ -1,4 +1,4 @@
-module github.com/Giancarlos/GuardRails
+module github.com/Giancarlos/guardrails
 
 go 1.25.0
 

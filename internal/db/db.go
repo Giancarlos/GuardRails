@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"github.com/Giancarlos/GuardRails/internal/models"
+	"github.com/Giancarlos/guardrails/internal/models"
 )
 
 const (

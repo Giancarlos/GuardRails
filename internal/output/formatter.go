@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Giancarlos/GuardRails/internal/models"
+	"github.com/Giancarlos/guardrails/internal/models"
 )
 
 // Formatter defines the interface for output formatting

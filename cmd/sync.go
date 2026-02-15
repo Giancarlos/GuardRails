@@ -10,8 +10,8 @@ import (
 	"github.com/google/go-github/v63/github"
 	"github.com/spf13/cobra"
 
-	"github.com/Giancarlos/GuardRails/internal/db"
-	"github.com/Giancarlos/GuardRails/internal/models"
+	"github.com/Giancarlos/guardrails/internal/db"
+	"github.com/Giancarlos/guardrails/internal/models"
 )
 
 const (

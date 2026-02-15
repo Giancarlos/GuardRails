@@ -1,6 +1,6 @@
 package main
 
-import "github.com/Giancarlos/GuardRails/cmd"
+import "github.com/Giancarlos/guardrails/cmd"
 
 func main() {
 	cmd.Execute()

@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Giancarlos/GuardRails/internal/db"
-	"github.com/Giancarlos/GuardRails/internal/models"
+	"github.com/Giancarlos/guardrails/internal/db"
+	"github.com/Giancarlos/guardrails/internal/models"
 )
 
 func setupTestDB(t *testing.T) func() {
