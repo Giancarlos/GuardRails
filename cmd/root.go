@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"guardrails/internal/db"
+	"github.com/Giancarlos/GuardRails/internal/db"
 )
 
 var (

@@ -6,8 +6,8 @@ import (
 	"github.com/spf13/cobra"
 	"gorm.io/gorm"
 
-	"guardrails/internal/db"
-	"guardrails/internal/models"
+	"github.com/Giancarlos/GuardRails/internal/db"
+	"github.com/Giancarlos/GuardRails/internal/models"
 )
 
 var depType string

@@ -5,8 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"guardrails/internal/db"
-	"guardrails/internal/models"
+	"github.com/Giancarlos/GuardRails/internal/db"
+	"github.com/Giancarlos/GuardRails/internal/models"
 )
 
 var syncStatusCmd = &cobra.Command{

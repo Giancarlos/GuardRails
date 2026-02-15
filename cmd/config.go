@@ -10,8 +10,8 @@ import (
 	"github.com/zalando/go-keyring"
 	"golang.org/x/term"
 
-	"guardrails/internal/db"
-	"guardrails/internal/models"
+	"github.com/Giancarlos/GuardRails/internal/db"
+	"github.com/Giancarlos/GuardRails/internal/models"
 )
 
 var configCmd = &cobra.Command{

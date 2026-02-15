@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"guardrails/internal/db"
-	"guardrails/internal/models"
+	"github.com/Giancarlos/GuardRails/internal/db"
+	"github.com/Giancarlos/GuardRails/internal/models"
 )
 
 func TestTemplateCreate(t *testing.T) {

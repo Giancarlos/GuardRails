@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"guardrails/internal/models"
+	"github.com/Giancarlos/GuardRails/internal/models"
 )
 
 func captureOutput(f func()) string {
