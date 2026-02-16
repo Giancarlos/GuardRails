@@ -14,6 +14,14 @@ A command-line task management tool for AI agents. Built with Go and SQLite.
 
 ## Installation
 
+Install via `go install`:
+
+```bash
+go install github.com/Giancarlos/guardrails/cmd/gur@latest
+```
+
+Or build from source:
+
 ```bash
 go build -o gur .
 ```
