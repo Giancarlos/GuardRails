@@ -18,6 +18,9 @@ jobs:
         with:
           go-version: '1.21'
 
+      - name: Pin Go toolchain
+        run: go env -w GOTOOLCHAIN=go1.21.0+auto
+
       - name: Build
         run: go build -v ./...
 
