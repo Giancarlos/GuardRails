@@ -57,6 +57,53 @@ func runShow(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	if IsCompactOutput() {
+		// Compact: single-line core info + minimal extras
+		typeStr := ""
+		if task.Type != models.TypeTask {
+			typeStr = " (" + task.Type + ")"
+		}
+		parentStr := ""
+		if task.ParentID != "" {
+			parentStr = " <" + task.ParentID
+		}
+		fmt.Printf("%s | P%d %s | %s%s%s\n", task.ID, task.Priority, task.Status, task.Title, typeStr, parentStr)
+		if task.Description != "" {
+			fmt.Printf("desc:%s\n", task.Description)
+		}
+		if task.Assignee != "" {
+			fmt.Printf("assignee:%s\n", task.Assignee)
+		}
+		if len(task.Labels) > 0 {
+			fmt.Printf("labels:%s\n", strings.Join(task.Labels, ","))
+		}
+		if len(subtasks) > 0 {
+			fmt.Printf("subtasks(%d):", len(subtasks))
+			for _, s := range subtasks {
+				fmt.Printf(" %s:%s", s.ID, s.Status)
+			}
+			fmt.Println()
+		}
+		if len(blockedBy) > 0 {
+			ids := make([]string, len(blockedBy))
+			for i, d := range blockedBy {
+				ids[i] = d.ParentID
+			}
+			fmt.Printf("blocked_by:%s\n", strings.Join(ids, ","))
+		}
+		if len(blocks) > 0 {
+			ids := make([]string, len(blocks))
+			for i, d := range blocks {
+				ids[i] = d.ChildID
+			}
+			fmt.Printf("blocks:%s\n", strings.Join(ids, ","))
+		}
+		if task.Notes != "" {
+			fmt.Printf("notes:%s\n", task.Notes)
+		}
+		return nil
+	}
+
 	fmt.Printf("ID:       %s\n", task.ID)
 	if task.ParentID != "" {
 		fmt.Printf("Parent:   %s\n", task.ParentID)

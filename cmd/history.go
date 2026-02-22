@@ -54,6 +54,19 @@ func runHistory(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	if IsCompactOutput() {
+		for _, h := range history {
+			if h.OldValue == "" {
+				fmt.Printf("%s +%s=%s\n", h.Field, h.Field, h.NewValue)
+			} else if h.NewValue == "" {
+				fmt.Printf("%s -%s\n", h.Field, h.OldValue)
+			} else {
+				fmt.Printf("%s %s->%s\n", h.Field, h.OldValue, h.NewValue)
+			}
+		}
+		return nil
+	}
+
 	fmt.Printf("Change history for %s (%s):\n\n", taskID, task.Title)
 	for _, h := range history {
 		timestamp := h.ChangedAt.Format(models.DateTimeFormat)

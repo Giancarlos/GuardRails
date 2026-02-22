@@ -27,16 +27,31 @@ type Formatter interface {
 // TextFormatter outputs human-readable text
 type TextFormatter struct{}
 
+// CompactFormatter outputs token-optimized text for AI agents
+type CompactFormatter struct{}
+
 // JSONFormatter outputs JSON
 type JSONFormatter struct{}
 
-// New returns the appropriate formatter based on json flag
+// New returns the appropriate formatter based on output flags
 func New(jsonOutput bool) Formatter {
 	if jsonOutput {
 		return &JSONFormatter{}
 	}
+	if IsCompact() {
+		return &CompactFormatter{}
+	}
 	return &TextFormatter{}
 }
+
+// compact tracks whether compact output mode is enabled
+var compact bool
+
+// SetCompact enables or disables compact output mode
+func SetCompact(v bool) { compact = v }
+
+// IsCompact returns whether compact output mode is active
+func IsCompact() bool { return compact }
 
 // TextFormatter implementations
 
@@ -132,6 +147,98 @@ func (f *TextFormatter) Section(title string) {
 func (f *TextFormatter) JSON(v interface{}) {
 	// TextFormatter doesn't output JSON, but provide fallback
 	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		f.Error(err)
+		return
+	}
+	fmt.Println(string(data))
+}
+
+// CompactFormatter implementations
+// Designed to minimize token usage while preserving all actionable information.
+
+func (f *CompactFormatter) Task(t *models.Task) {
+	// Single-line core info, then only non-empty extras
+	parts := []string{t.ID, "P" + fmt.Sprint(t.Priority), t.Status, t.Title}
+	if t.Type != models.TypeTask {
+		parts = append(parts, "("+t.Type+")")
+	}
+	fmt.Println(strings.Join(parts, " | "))
+	if t.ParentID != "" {
+		fmt.Printf("parent:%s\n", t.ParentID)
+	}
+	if t.Description != "" {
+		fmt.Printf("desc:%s\n", t.Description)
+	}
+	if t.Assignee != "" {
+		fmt.Printf("assignee:%s\n", t.Assignee)
+	}
+	if len(t.Labels) > 0 {
+		fmt.Printf("labels:%s\n", strings.Join(t.Labels, ","))
+	}
+}
+
+func (f *CompactFormatter) TaskList(tasks []models.Task, title string) {
+	if title != "" {
+		fmt.Printf("%s (%d):\n", title, len(tasks))
+	}
+	for _, t := range tasks {
+		f.TaskBrief(&t)
+	}
+}
+
+func (f *CompactFormatter) TaskBrief(t *models.Task) {
+	indent := ""
+	if strings.Contains(t.ID, ".") {
+		indent = "  "
+	}
+	typeStr := ""
+	if t.Type != models.TypeTask {
+		typeStr = " (" + t.Type + ")"
+	}
+	fmt.Printf("%s%s P%d %s %s%s\n", indent, t.ID, t.Priority, t.Status, t.Title, typeStr)
+}
+
+func (f *CompactFormatter) Gate(g *models.Gate) {
+	parts := []string{g.ID, g.ResultString(), g.Title, g.TypeString()}
+	if g.Category != "" {
+		parts = append(parts, "["+g.Category+"]")
+	}
+	fmt.Println(strings.Join(parts, " | "))
+}
+
+func (f *CompactFormatter) GateList(gates []models.Gate) {
+	for _, g := range gates {
+		cat := ""
+		if g.Category != "" {
+			cat = "[" + g.Category + "] "
+		}
+		fmt.Printf("%s %s%s %s (%s)\n", g.ID, cat, g.ResultString(), g.Title, g.TypeString())
+	}
+}
+
+func (f *CompactFormatter) Success(msg string) {
+	fmt.Printf("ok: %s\n", msg)
+}
+
+func (f *CompactFormatter) Error(err error) {
+	fmt.Fprintf(os.Stderr, "err: %v\n", err)
+}
+
+func (f *CompactFormatter) Info(msg string) {
+	fmt.Println(msg)
+}
+
+func (f *CompactFormatter) KeyValue(key, value string) {
+	fmt.Printf("%s:%s\n", key, value)
+}
+
+func (f *CompactFormatter) Section(title string) {
+	// No section headers in compact mode
+}
+
+func (f *CompactFormatter) JSON(v interface{}) {
+	data, err := json.Marshal(v)
 	if err != nil {
 		f.Error(err)
 		return

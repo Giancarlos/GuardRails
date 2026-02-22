@@ -80,6 +80,12 @@ func runSyncStatus(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	if IsCompactOutput() {
+		fmt.Printf("sync %s: %d/%d synced (%d unsynced) | push:%d pull:%d\n",
+			repo, syncedTasks, totalTasks, unsyncedTasks, pushLinks, pullLinks)
+		return nil
+	}
+
 	fmt.Printf("GitHub Sync Status\n")
 	fmt.Printf("==================\n\n")
 	fmt.Printf("Repository: %s\n\n", repo)

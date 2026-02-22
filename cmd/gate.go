@@ -206,6 +206,8 @@ func runGateCreate(cmd *cobra.Command, args []string) error {
 
 	if IsJSONOutput() {
 		OutputJSON(map[string]interface{}{"success": true, "gate": gate})
+	} else if IsCompactOutput() {
+		fmt.Printf("ok: %s %s\n", gate.ID, gate.Title)
 	} else {
 		fmt.Printf("Created: %s - %s\n", gate.ID, gate.Title)
 		if gate.Category != "" {
@@ -274,6 +276,34 @@ func runGateShow(cmd *cobra.Command, args []string) error {
 			"linked_tasks": links,
 			"recent_runs":  runs,
 		})
+		return nil
+	}
+
+	if IsCompactOutput() {
+		cat := ""
+		if gate.Category != "" {
+			cat = " [" + gate.Category + "]"
+		}
+		fmt.Printf("%s | P%d %s | %s (%s)%s | %d/%d passed\n",
+			gate.ID, gate.Priority, gate.ResultString(), gate.Title, gate.TypeString(), cat,
+			gate.PassCount, gate.RunCount)
+		if gate.Description != "" {
+			fmt.Printf("desc:%s\n", gate.Description)
+		}
+		if gate.Command != "" {
+			fmt.Printf("cmd:%s\n", gate.Command)
+		}
+		if len(links) > 0 {
+			parts := make([]string, len(links))
+			for i, l := range links {
+				status := l.Status
+				if status == "" {
+					status = "pending"
+				}
+				parts[i] = l.TaskID + ":" + status
+			}
+			fmt.Printf("tasks:%s\n", strings.Join(parts, " "))
+		}
 		return nil
 	}
 
@@ -422,6 +452,8 @@ func runGateLink(cmd *cobra.Command, args []string) error {
 
 	if IsJSONOutput() {
 		OutputJSON(map[string]interface{}{"success": true, "link": link})
+	} else if IsCompactOutput() {
+		fmt.Printf("ok: %s -> %s\n", gateID, taskID)
 	} else {
 		fmt.Printf("Linked: %s -> %s (status: pending)\n", gateID, taskID)
 		fmt.Println("Task cannot be closed until this gate is verified for this task.")
@@ -459,6 +491,8 @@ func runGateUnlink(cmd *cobra.Command, args []string) error {
 
 	if IsJSONOutput() {
 		OutputJSON(map[string]interface{}{"success": true, "warning": link.Status != "" && link.Status != models.GateLinkPending})
+	} else if IsCompactOutput() {
+		fmt.Println("ok: unlinked")
 	} else {
 		fmt.Println("Unlinked gate from task")
 		fmt.Println("Note: Any verification status for this task-gate pair has been deleted.")

@@ -8,11 +8,14 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Giancarlos/guardrails/internal/db"
+	"github.com/Giancarlos/guardrails/internal/output"
 )
 
 var (
-	Version    = "0.1.0"
-	jsonOutput bool
+	Version       = "0.1.0"
+	jsonOutput    bool
+	compactOutput bool
+	verboseOutput bool
 )
 
 // commandsExemptFromDB lists commands that don't require database initialization
@@ -56,10 +59,12 @@ TEST TYPES: unit, integration, e2e, manual, smoke, regression
 
 WORKFLOW: Tasks with linked tests cannot be closed until tests pass.
 
-JSON OUTPUT: Add --json flag to any command for machine-readable output.`,
+JSON OUTPUT: Add --json flag to any command for machine-readable output.
+COMPACT OUTPUT: Enabled by default. Use --verbose or GUR_COMPACT=0 for full output.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		output.SetCompact(IsCompactOutput())
 		if commandsExemptFromDB[cmd.Name()] {
 			return nil
 		}
@@ -82,7 +87,17 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+	rootCmd.PersistentFlags().BoolVarP(&compactOutput, "compact", "c", true, "Token-optimized compact output (default, use --compact=false to disable)")
+	rootCmd.PersistentFlags().BoolVar(&verboseOutput, "verbose", false, "Use verbose text output instead of compact")
 	rootCmd.Version = Version
+}
+
+// IsCompactOutput returns whether compact mode is active (default: true)
+func IsCompactOutput() bool {
+	if os.Getenv("GUR_COMPACT") == "0" || verboseOutput {
+		return false
+	}
+	return compactOutput
 }
 
 func OutputJSON(data interface{}) {

@@ -264,6 +264,18 @@ func runSummary(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	if IsCompactOutput() {
+		fmt.Printf("%d open, %d in_progress, %d closed, %d archived | 24h: +%d -%d | compact: %d/%d\n",
+			openCount, inProgressCount, closedCount, archivedCount,
+			recentlyCreated, recentlyClosed, compactedCount, compactedCount+uncompactedCount)
+		if len(highPriorityTasks) > 0 {
+			for _, t := range highPriorityTasks {
+				fmt.Printf("P%d %s %s %s\n", t.Priority, t.ID, t.Status, t.Title)
+			}
+		}
+		return nil
+	}
+
 	fmt.Println("=== Session Summary ===")
 	fmt.Printf("Task Status:\n")
 	fmt.Printf("  Open:        %d\n", openCount)

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -59,6 +60,17 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 			result["github_user"] = username
 		}
 		OutputJSON(result)
+		return nil
+	}
+
+	if IsCompactOutput() {
+		parts := []string{"machine:" + hostnameHash}
+		if username != "" {
+			parts = append(parts, "github:@"+username+"/"+repo)
+		} else if repo != "" {
+			parts = append(parts, "github:"+repo)
+		}
+		fmt.Println(strings.Join(parts, " "))
 		return nil
 	}
 

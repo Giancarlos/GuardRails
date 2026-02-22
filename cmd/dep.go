@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"gorm.io/gorm"
@@ -122,6 +123,8 @@ func runDepAdd(cmd *cobra.Command, args []string) error {
 
 	if IsJSONOutput() {
 		OutputJSON(map[string]interface{}{"success": true, "dependency": dep})
+	} else if IsCompactOutput() {
+		fmt.Printf("ok: %s blocks %s\n", blockerID, blockedID)
 	} else {
 		fmt.Printf("Added: %s blocks %s\n", blockerID, blockedID)
 	}
@@ -164,6 +167,27 @@ func runDepList(cmd *cobra.Command, args []string) error {
 
 	if IsJSONOutput() {
 		OutputJSON(map[string]interface{}{"blocked_by": blockedBy, "blocks": blocks})
+		return nil
+	}
+
+	if IsCompactOutput() {
+		if len(blockedBy) > 0 {
+			ids := make([]string, len(blockedBy))
+			for i, d := range blockedBy {
+				ids[i] = d.ParentID
+			}
+			fmt.Printf("blocked_by:%s\n", strings.Join(ids, ","))
+		}
+		if len(blocks) > 0 {
+			ids := make([]string, len(blocks))
+			for i, d := range blocks {
+				ids[i] = d.ChildID
+			}
+			fmt.Printf("blocks:%s\n", strings.Join(ids, ","))
+		}
+		if len(blockedBy) == 0 && len(blocks) == 0 {
+			fmt.Println("no deps")
+		}
 		return nil
 	}
 

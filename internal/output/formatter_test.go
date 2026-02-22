@@ -27,6 +27,7 @@ func captureOutput(f func()) string {
 }
 
 func TestNewFormatter(t *testing.T) {
+	SetCompact(false)
 	textFormatter := New(false)
 	if _, ok := textFormatter.(*TextFormatter); !ok {
 		t.Error("New(false) should return TextFormatter")
@@ -36,6 +37,13 @@ func TestNewFormatter(t *testing.T) {
 	if _, ok := jsonFormatter.(*JSONFormatter); !ok {
 		t.Error("New(true) should return JSONFormatter")
 	}
+
+	SetCompact(true)
+	compactFormatter := New(false)
+	if _, ok := compactFormatter.(*CompactFormatter); !ok {
+		t.Error("New(false) with compact=true should return CompactFormatter")
+	}
+	SetCompact(false)
 }
 
 func TestTextFormatterTask(t *testing.T) {
@@ -258,5 +266,176 @@ func TestTextFormatterGate(t *testing.T) {
 	}
 	if !strings.Contains(output, "testing") {
 		t.Error("output should contain category")
+	}
+}
+
+// CompactFormatter tests
+
+func TestCompactFormatterTask(t *testing.T) {
+	f := &CompactFormatter{}
+	task := &models.Task{
+		ID:          "gur-test123",
+		Title:       "Test Task",
+		Status:      models.StatusOpen,
+		Priority:    models.PriorityHigh,
+		Type:        models.TypeBug,
+		Description: "Test description",
+		Assignee:    "alice",
+		Labels:      models.StringSlice{"urgent", "backend"},
+	}
+
+	output := captureOutput(func() {
+		f.Task(task)
+	})
+
+	// Should contain core info on first line
+	if !strings.Contains(output, "gur-test123") {
+		t.Error("output should contain task ID")
+	}
+	if !strings.Contains(output, "P1") {
+		t.Error("output should contain priority")
+	}
+	if !strings.Contains(output, "(bug)") {
+		t.Error("output should contain type for non-task types")
+	}
+	if !strings.Contains(output, "desc:Test description") {
+		t.Error("output should contain compact description")
+	}
+	if !strings.Contains(output, "assignee:alice") {
+		t.Error("output should contain compact assignee")
+	}
+	if !strings.Contains(output, "labels:urgent,backend") {
+		t.Error("output should contain compact labels")
+	}
+
+	// Count lines - compact should be fewer than text
+	compactLines := strings.Count(output, "\n")
+
+	textOutput := captureOutput(func() {
+		(&TextFormatter{}).Task(task)
+	})
+	textLines := strings.Count(textOutput, "\n")
+
+	if compactLines >= textLines {
+		t.Errorf("compact output (%d lines) should have fewer lines than text output (%d lines)", compactLines, textLines)
+	}
+}
+
+func TestCompactFormatterTaskBrief(t *testing.T) {
+	f := &CompactFormatter{}
+
+	task := &models.Task{
+		ID:       "gur-abc123",
+		Title:    "Regular task",
+		Status:   models.StatusOpen,
+		Priority: 1,
+		Type:     models.TypeTask,
+	}
+
+	output := captureOutput(func() {
+		f.TaskBrief(task)
+	})
+
+	// Should NOT contain brackets (more compact)
+	if strings.Contains(output, "[gur-abc123]") {
+		t.Error("compact output should not have brackets around ID")
+	}
+	if !strings.Contains(output, "gur-abc123") {
+		t.Error("output should contain task ID")
+	}
+	// Should not show (task) type for regular tasks
+	if strings.Contains(output, "(task)") {
+		t.Error("compact output should omit type for regular tasks")
+	}
+}
+
+func TestCompactFormatterSuccess(t *testing.T) {
+	f := &CompactFormatter{}
+
+	output := captureOutput(func() {
+		f.Success("Created task")
+	})
+
+	if output != "ok: Created task\n" {
+		t.Errorf("output = %q, want 'ok: Created task\\n'", output)
+	}
+}
+
+func TestCompactFormatterGate(t *testing.T) {
+	f := &CompactFormatter{}
+	gate := &models.Gate{
+		ID:         "gate-12345678",
+		Title:      "Test Gate",
+		Type:       "test",
+		Priority:   0,
+		LastResult: models.GatePassed,
+		Category:   "auth",
+	}
+
+	output := captureOutput(func() {
+		f.Gate(gate)
+	})
+
+	// Should be single line with pipe separators
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	if len(lines) != 1 {
+		t.Errorf("compact gate should be 1 line, got %d", len(lines))
+	}
+	if !strings.Contains(output, "gate-12345678") {
+		t.Error("output should contain gate ID")
+	}
+	if !strings.Contains(output, "PASS") {
+		t.Error("output should contain result")
+	}
+	if !strings.Contains(output, "[auth]") {
+		t.Error("output should contain category")
+	}
+}
+
+func TestCompactFormatterJSON(t *testing.T) {
+	f := &CompactFormatter{}
+
+	output := captureOutput(func() {
+		f.JSON(map[string]string{"key": "value"})
+	})
+
+	// Should be non-indented JSON (single line)
+	var result map[string]string
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	if result["key"] != "value" {
+		t.Errorf("key = %v, want value", result["key"])
+	}
+	// Should be single line (no indentation)
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	if len(lines) != 1 {
+		t.Errorf("compact JSON should be single line, got %d lines", len(lines))
+	}
+}
+
+func TestCompactFormatterKeyValue(t *testing.T) {
+	f := &CompactFormatter{}
+
+	output := captureOutput(func() {
+		f.KeyValue("status", "open")
+	})
+
+	// Compact uses colon without space
+	if output != "status:open\n" {
+		t.Errorf("output = %q, want 'status:open\\n'", output)
+	}
+}
+
+func TestCompactFormatterSection(t *testing.T) {
+	f := &CompactFormatter{}
+
+	output := captureOutput(func() {
+		f.Section("Details")
+	})
+
+	// Compact mode should produce no output for sections
+	if output != "" {
+		t.Errorf("compact section should produce no output, got %q", output)
 	}
 }

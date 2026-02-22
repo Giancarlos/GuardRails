@@ -51,6 +51,14 @@ func runReady(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	if IsCompactOutput() {
+		fmt.Printf("ready(%d):\n", len(readyTasks))
+		for _, t := range readyTasks {
+			fmt.Printf("%s P%d %s %s\n", t.ID, t.Priority, t.Status, t.Title)
+		}
+		return nil
+	}
+
 	fmt.Printf("Ready tasks (%d):\n", len(readyTasks))
 	for _, t := range readyTasks {
 		fmt.Printf("[%s] P%d %s - %s\n", t.ID, t.Priority, t.Status, t.Title)

@@ -227,6 +227,8 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	if IsJSONOutput() {
 		OutputJSON(map[string]interface{}{"success": true, "task": task})
+	} else if IsCompactOutput() {
+		fmt.Printf("ok: %s\n", task.ID)
 	} else {
 		fmt.Printf("Updated: %s\n", task.ID)
 	}

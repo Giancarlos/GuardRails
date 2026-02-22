@@ -88,6 +88,12 @@ func runStats(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	if IsCompactOutput() {
+		fmt.Printf("%d tasks: %d open, %d in_progress, %d closed | P0:%d P1:%d P2:%d P3:%d P4:%d\n",
+			total, open, inProgress, closed, p0, p1, p2, p3, p4)
+		return nil
+	}
+
 	fmt.Printf("Total tasks: %d\n\n", total)
 	fmt.Println("By status:")
 	fmt.Printf("  Open:        %d\n", open)

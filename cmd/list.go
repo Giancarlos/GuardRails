@@ -86,7 +86,15 @@ func runList(cmd *cobra.Command, args []string) error {
 		for i := 0; i < depth; i++ {
 			indent += "  "
 		}
-		fmt.Printf("%s[%s] P%d %s - %s (%s)\n", indent, t.ID, t.Priority, t.Status, t.Title, t.Type)
+		if IsCompactOutput() {
+			typeStr := ""
+			if t.Type != models.TypeTask {
+				typeStr = " (" + t.Type + ")"
+			}
+			fmt.Printf("%s%s P%d %s %s%s\n", indent, t.ID, t.Priority, t.Status, t.Title, typeStr)
+		} else {
+			fmt.Printf("%s[%s] P%d %s - %s (%s)\n", indent, t.ID, t.Priority, t.Status, t.Title, t.Type)
+		}
 	}
 	return nil
 }

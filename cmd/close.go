@@ -123,6 +123,8 @@ func runClose(cmd *cobra.Command, args []string) error {
 
 	if IsJSONOutput() {
 		OutputJSON(map[string]interface{}{"success": true, "task": task, "forced": closeForce && gateCheckErr != nil})
+	} else if IsCompactOutput() {
+		fmt.Printf("ok: closed %s\n", task.ID)
 	} else {
 		fmt.Printf("Closed: %s\n", task.ID)
 	}
