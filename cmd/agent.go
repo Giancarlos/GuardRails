@@ -74,7 +74,7 @@ func init() {
 
 	agentAddCmd.Flags().StringVar(&agentPath, "path", "", "Full path to agent file")
 	agentAddCmd.Flags().StringVar(&agentSource, "source", models.SourceCustom, "Source (claude/cursor/windsurf/copilot/custom)")
-	agentAddCmd.Flags().StringVarP(&agentDescription, "description", "d", "", "Agent description")
+	agentAddCmd.Flags().StringVar(&agentDescription, "description", "", "Agent description")
 	agentAddCmd.Flags().StringVar(&agentCapabilities, "capabilities", "", "Agent capabilities")
 }
 

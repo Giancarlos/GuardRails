@@ -28,10 +28,10 @@ var listCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(listCmd)
-	listCmd.Flags().StringVarP(&listStatus, "status", "s", "", "Filter by status")
-	listCmd.Flags().IntVarP(&listPriority, "priority", "p", -1, "Filter by priority")
-	listCmd.Flags().StringVarP(&listType, "type", "t", "", "Filter by type")
-	listCmd.Flags().StringVarP(&listAssignee, "assignee", "a", "", "Filter by assignee")
+	listCmd.Flags().StringVar(&listStatus, "status", "", "Filter by status")
+	listCmd.Flags().IntVar(&listPriority, "priority", -1, "Filter by priority")
+	listCmd.Flags().StringVar(&listType, "type", "", "Filter by type")
+	listCmd.Flags().StringVar(&listAssignee, "assignee", "", "Filter by assignee")
 	listCmd.Flags().BoolVar(&listArchived, "archived", false, "Include archived tasks")
 	listCmd.Flags().IntVar(&listLimit, "limit", 0, "Limit number of results (0 = no limit)")
 	listCmd.Flags().IntVar(&listOffset, "offset", 0, "Skip first N results")

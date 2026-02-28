@@ -26,7 +26,7 @@ var initCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(initCmd)
-	initCmd.Flags().BoolVarP(&forceInit, "force", "f", false, "Force reinitialize")
+	initCmd.Flags().BoolVar(&forceInit, "force", false, "Force reinitialize")
 	initCmd.Flags().BoolVar(&stealthMode, "stealth", false, "Initialize in stealth mode (local-only, add to .gitignore)")
 	initCmd.Flags().BoolVar(&contributorMode, "contributor", false, "Initialize in contributor mode (separate tracking)")
 }

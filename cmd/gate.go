@@ -54,10 +54,10 @@ SUGGESTED TYPES (or use any custom type):
   doc        - Documentation check
 
 Examples:
-  gur gate create "Unit tests pass" -t test -c backend
-  gur gate create "Code review approved" -t review
-  gur gate create "PM sign-off" -t approval
-  gur gate create "Security scan" -t security --cmd "npm audit"`,
+  gur gate create "Unit tests pass" --type test --category backend
+  gur gate create "Code review approved" --type review
+  gur gate create "PM sign-off" --type approval
+  gur gate create "Security scan" --type security --cmd "npm audit"`,
 	Args: cobra.ExactArgs(1),
 	RunE: runGateCreate,
 }
@@ -161,19 +161,19 @@ func init() {
 	gateCmd.AddCommand(gateDeleteCmd)
 
 	// Create flags
-	gateCreateCmd.Flags().StringVarP(&gateCategory, "category", "c", "", "Category (e.g., auth, api, ui)")
-	gateCreateCmd.Flags().StringVarP(&gateType, "type", "t", "manual", "Type (e.g., test, review, approval, manual)")
-	gateCreateCmd.Flags().IntVarP(&gatePriority, "priority", "p", 2, "Priority (0-4)")
-	gateCreateCmd.Flags().StringArrayVarP(&gateLabels, "label", "l", nil, "Labels")
+	gateCreateCmd.Flags().StringVar(&gateCategory, "category", "", "Category (e.g., auth, api, ui)")
+	gateCreateCmd.Flags().StringVar(&gateType, "type", "manual", "Type (e.g., test, review, approval, manual)")
+	gateCreateCmd.Flags().IntVar(&gatePriority, "priority", 2, "Priority (0-4)")
+	gateCreateCmd.Flags().StringArrayVar(&gateLabels, "label", nil, "Labels")
 	gateCreateCmd.Flags().StringVar(&gatePrecond, "pre", "", "Preconditions")
 	gateCreateCmd.Flags().StringVar(&gateSteps, "steps", "", "Steps to verify")
 	gateCreateCmd.Flags().StringVar(&gateExpected, "expected", "", "Expected result")
 	gateCreateCmd.Flags().StringVar(&gateCommand, "cmd", "", "Command to run (for automated gates)")
-	gateCreateCmd.Flags().StringVarP(&gateDescription, "description", "d", "", "Description")
+	gateCreateCmd.Flags().StringVar(&gateDescription, "description", "", "Description")
 
 	// List flags
-	gateListCmd.Flags().StringVarP(&gateCategory, "category", "c", "", "Filter by category")
-	gateListCmd.Flags().StringVarP(&gateType, "type", "t", "", "Filter by type")
+	gateListCmd.Flags().StringVar(&gateCategory, "category", "", "Filter by category")
+	gateListCmd.Flags().StringVar(&gateType, "type", "", "Filter by type")
 	gateListCmd.Flags().StringVar(&listStatus, "result", "", "Filter by last result")
 
 	// Pass/fail/skip flags

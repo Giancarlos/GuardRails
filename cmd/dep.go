@@ -54,7 +54,7 @@ func init() {
 	depCmd.AddCommand(depRemoveCmd)
 	depCmd.AddCommand(depListCmd)
 
-	depAddCmd.Flags().StringVarP(&depType, "type", "t", "blocks", "Type (blocks/related/parent-child)")
+	depAddCmd.Flags().StringVar(&depType, "type", "blocks", "Type (blocks/related/parent-child)")
 }
 
 // wouldCreateCycle checks if adding blockerID -> blockedID would create a cycle

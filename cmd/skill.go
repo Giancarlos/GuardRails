@@ -72,7 +72,7 @@ func init() {
 
 	skillAddCmd.Flags().StringVar(&skillPath, "path", "", "Full path to skill file")
 	skillAddCmd.Flags().StringVar(&skillSource, "source", models.SourceCustom, "Source (claude/cursor/windsurf/copilot/custom)")
-	skillAddCmd.Flags().StringVarP(&skillDescription, "description", "d", "", "Skill description")
+	skillAddCmd.Flags().StringVar(&skillDescription, "description", "", "Skill description")
 }
 
 func runSkillList(cmd *cobra.Command, args []string) error {

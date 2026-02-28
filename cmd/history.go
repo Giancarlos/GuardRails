@@ -20,7 +20,7 @@ var historyCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(historyCmd)
-	historyCmd.Flags().IntVarP(&historyLimit, "limit", "n", 50, "Maximum entries to show")
+	historyCmd.Flags().IntVar(&historyLimit, "limit", 50, "Maximum entries to show")
 }
 
 func runHistory(cmd *cobra.Command, args []string) error {

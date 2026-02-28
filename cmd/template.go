@@ -58,10 +58,10 @@ func init() {
 	templateCmd.AddCommand(templateShowCmd)
 	templateCmd.AddCommand(templateDeleteCmd)
 
-	templateCreateCmd.Flags().IntVarP(&tmplPriority, "priority", "p", models.PriorityMedium, "Default priority (0-4)")
-	templateCreateCmd.Flags().StringVarP(&tmplType, "type", "t", models.TypeTask, "Default type (task, bug, feature, epic)")
-	templateCreateCmd.Flags().StringVarP(&tmplDescription, "description", "d", "", "Default description")
-	templateCreateCmd.Flags().StringSliceVarP(&tmplLabels, "label", "l", nil, "Default labels")
+	templateCreateCmd.Flags().IntVar(&tmplPriority, "priority", models.PriorityMedium, "Default priority (0-4)")
+	templateCreateCmd.Flags().StringVar(&tmplType, "type", models.TypeTask, "Default type (task, bug, feature, epic)")
+	templateCreateCmd.Flags().StringVar(&tmplDescription, "description", "", "Default description")
+	templateCreateCmd.Flags().StringSliceVar(&tmplLabels, "label", nil, "Default labels")
 }
 
 func runTemplateCreate(cmd *cobra.Command, args []string) error {

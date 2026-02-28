@@ -33,11 +33,11 @@ var rootCmd = &cobra.Command{
 
 QUICK START:
   gur init                          # Initialize in current directory
-  gur create "Fix bug" -p 0         # Create P0 (critical) task
+  gur create "Fix bug" --priority 0  # Create P0 (critical) task
   gur list                          # List all tasks
   gur ready                         # Show tasks ready to work on
-  gur update <id> -s in_progress    # Start working on task
-  gur close <id> -r "Done"          # Close with reason
+  gur update <id> --status in_progress  # Start working on task
+  gur close <id> --reason "Done"    # Close with reason
 
 PRIORITIES: 0=Critical, 1=High, 2=Medium (default), 3=Low, 4=Lowest
 TYPES: task (default), bug, feature, epic
@@ -50,7 +50,7 @@ DEPENDENCIES:
   gur ready                         # Shows only unblocked tasks
 
 TEST CASES:
-  gur test create "Login works" -c auth -t e2e
+  gur test create "Login works" --category auth --type e2e
   gur test list                     # List all tests
   gur test run <id> passed/failed   # Record test result
   gur test link <test-id> <task-id> # Link test to task (required to close)
@@ -87,7 +87,7 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
-	rootCmd.PersistentFlags().BoolVarP(&compactOutput, "compact", "c", true, "Token-optimized compact output (default, use --compact=false to disable)")
+	rootCmd.PersistentFlags().BoolVar(&compactOutput, "compact", true, "Token-optimized compact output (default, use --compact=false to disable)")
 	rootCmd.PersistentFlags().BoolVar(&verboseOutput, "verbose", false, "Use verbose text output instead of compact")
 	rootCmd.Version = Version
 }

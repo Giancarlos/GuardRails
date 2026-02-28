@@ -31,11 +31,11 @@ var createCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(createCmd)
-	createCmd.Flags().IntVarP(&createPriority, "priority", "p", -1, "Priority (0-4)")
-	createCmd.Flags().StringVarP(&createType, "type", "t", "", "Type (task/bug/feature/epic)")
-	createCmd.Flags().StringArrayVarP(&createLabels, "label", "l", nil, "Labels")
-	createCmd.Flags().StringVarP(&createAssignee, "assignee", "a", "", "Assignee")
-	createCmd.Flags().StringVarP(&createDescription, "description", "d", "", "Description")
+	createCmd.Flags().IntVar(&createPriority, "priority", -1, "Priority (0-4)")
+	createCmd.Flags().StringVar(&createType, "type", "", "Type (task/bug/feature/epic)")
+	createCmd.Flags().StringArrayVar(&createLabels, "label", nil, "Labels")
+	createCmd.Flags().StringVar(&createAssignee, "assignee", "", "Assignee")
+	createCmd.Flags().StringVar(&createDescription, "description", "", "Description")
 	createCmd.Flags().StringVar(&createTemplate, "template", "", "Create from template")
 	createCmd.Flags().StringVar(&createParent, "parent", "", "Parent task ID (creates subtask)")
 	createCmd.Flags().StringArrayVar(&createSkills, "skill", nil, "Link skill to task")
