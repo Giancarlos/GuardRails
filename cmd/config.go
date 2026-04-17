@@ -182,9 +182,15 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 	// Get database path
 	dbPath, _ := db.GetDefaultDBPath()
 
+	// Get project root (data already available via FindProjectRoot)
+	projectRoot := "(unknown)"
+	if root, err := db.FindProjectRoot(); err == nil {
+		projectRoot = root
+	}
+
 	// Get mode
-	mode := "default"
-	if modeConfig, err := db.GetConfig(models.ConfigMode); err == nil {
+	mode := models.ModeDefault
+	if modeConfig, err := db.GetConfig(models.ConfigMode); err == nil && modeConfig != "" {
 		mode = modeConfig
 	}
 
@@ -210,8 +216,10 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 	tokenSet := tokenErr == nil
 
 	if IsJSONOutput() {
+		// Keep existing flat keys for backward compatibility; add project_root.
 		OutputJSON(map[string]interface{}{
 			"database":       dbPath,
+			"project_root":   projectRoot,
 			"mode":           mode,
 			"schema_version": schema,
 			"initialized_at": initializedAt,
@@ -224,13 +232,11 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Println("Configuration")
-	fmt.Println("=============")
-	fmt.Printf("Database:     %s\n", dbPath)
-	fmt.Printf("Mode:         %s\n", mode)
-	fmt.Printf("Schema:       %s\n", schema)
+	fmt.Println("Configuration:")
+	fmt.Printf("  Mode:         %s\n", mode)
+	fmt.Printf("  Schema:       %s\n", schema)
 	if initializedAt != "" {
-		fmt.Printf("Initialized:  %s\n", initializedAt)
+		fmt.Printf("  Initialized:  %s\n", initializedAt)
 	}
 
 	fmt.Println("\nGitHub:")
@@ -243,8 +249,12 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 			fmt.Println("  Token:        (not configured)")
 		}
 	} else {
-		fmt.Println("  (not configured)")
+		fmt.Println("  (not configured — run 'gur config github')")
 	}
+
+	fmt.Println("\nPaths:")
+	fmt.Printf("  Database:     %s\n", dbPath)
+	fmt.Printf("  Project Root: %s\n", projectRoot)
 
 	return nil
 }

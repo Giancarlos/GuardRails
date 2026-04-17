@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -48,9 +47,16 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 	// Get database path
 	dbPath, _ := db.GetDefaultDBPath()
 
+	// Get mode (defaults to "default" if unset, mirroring runConfigShow)
+	mode := models.ModeDefault
+	if modeConfig, err := db.GetConfig(models.ConfigMode); err == nil && modeConfig != "" {
+		mode = modeConfig
+	}
+
 	if IsJSONOutput() {
 		result := map[string]interface{}{
 			"machine_hash": hostnameHash,
+			"mode":         mode,
 			"database":     dbPath,
 		}
 		if repo != "" {
@@ -63,25 +69,15 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if IsCompactOutput() {
-		parts := []string{"machine:" + hostnameHash}
-		if username != "" {
-			parts = append(parts, "github:@"+username+"/"+repo)
-		} else if repo != "" {
-			parts = append(parts, "github:"+repo)
-		}
-		fmt.Println(strings.Join(parts, " "))
-		return nil
-	}
-
-	fmt.Printf("Machine:  %s\n", hostnameHash)
 	if username != "" {
 		fmt.Printf("GitHub:   @%s (%s)\n", username, repo)
 	} else if repo != "" {
 		fmt.Printf("GitHub:   %s\n", repo)
 	} else {
-		fmt.Println("GitHub:   (not configured)")
+		fmt.Println("GitHub:   (not configured — run 'gur config github')")
 	}
+	fmt.Printf("Machine:  %s\n", hostnameHash)
+	fmt.Printf("Mode:     %s\n", mode)
 	fmt.Printf("Database: %s\n", dbPath)
 
 	return nil
