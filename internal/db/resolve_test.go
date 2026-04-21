@@ -201,6 +201,42 @@ func TestResolveTaskID_FullIDWithoutPrefix(t *testing.T) {
 	}
 }
 
+func TestResolveTaskID_AmbiguousOverflow(t *testing.T) {
+	defer setupTestDB(t)()
+	// Seed maxAmbiguousIDs+5 tasks all sharing prefix "gur-a".
+	ids := make([]string, 0, maxAmbiguousIDs+5)
+	for i := range maxAmbiguousIDs + 5 {
+		ids = append(ids, models.IDPrefix+"a"+padHex(i))
+	}
+	seedTasks(t, ids...)
+
+	_, err := ResolveTaskID("a")
+	var ambig *AmbiguousIDError
+	if !errors.As(err, &ambig) {
+		t.Fatalf("got %v, want *AmbiguousIDError", err)
+	}
+	if !ambig.HasMore {
+		t.Error("HasMore = false, want true when match count exceeds cap")
+	}
+	if len(ambig.Matches) != maxAmbiguousIDs {
+		t.Errorf("Matches len = %d, want %d (trimmed to cap)", len(ambig.Matches), maxAmbiguousIDs)
+	}
+	if !contains(ambig.Error(), "more than") {
+		t.Errorf("error message must indicate overflow:\n%s", ambig.Error())
+	}
+}
+
+// padHex produces a 7-char hex suffix so all seeded IDs are distinct and well-formed.
+func padHex(i int) string {
+	const hex = "0123456789abcdef"
+	out := make([]byte, 7)
+	for j := 6; j >= 0; j-- {
+		out[j] = hex[i&0xf]
+		i >>= 4
+	}
+	return string(out)
+}
+
 // contains is a tiny helper to keep tests readable (strings.Contains inline gets noisy).
 func contains(haystack, needle string) bool {
 	return len(haystack) >= len(needle) && indexOf(haystack, needle) >= 0

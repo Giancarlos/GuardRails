@@ -436,11 +436,12 @@ func runGateLink(cmd *cobra.Command, args []string) error {
 
 	// Check if already linked
 	var existing models.GateTaskLink
-	if err := database.Where("gate_id = ? AND task_id = ?", gateID, taskID).First(&existing).Error; err == nil {
+	lookupErr := database.Where("gate_id = ? AND task_id = ?", gateID, taskID).First(&existing).Error
+	if lookupErr == nil {
 		return fmt.Errorf("cannot link gate: gate '%s' is already linked to task '%s'", gateID, taskID)
 	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return fmt.Errorf("cannot link gate: failed to check existing link: %w", err)
+	if !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+		return fmt.Errorf("cannot link gate: failed to check existing link: %w", lookupErr)
 	}
 
 	link := &models.GateTaskLink{

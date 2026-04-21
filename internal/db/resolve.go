@@ -18,9 +18,14 @@ var ErrTaskNotFound = errors.New("task not found")
 type AmbiguousIDError struct {
 	Input   string   // The original user input (not the internal query prefix).
 	Matches []string // Sorted ascending. Capped at maxAmbiguousIDs.
+	HasMore bool     // True if more matches exist beyond those listed in Matches.
 }
 
 func (e *AmbiguousIDError) Error() string {
+	if e.HasMore {
+		return fmt.Sprintf("ambiguous ID %q matches more than %d tasks, showing first %d: [%s]",
+			e.Input, maxAmbiguousIDs, len(e.Matches), strings.Join(e.Matches, " "))
+	}
 	return fmt.Sprintf("ambiguous ID %q matches %d tasks: [%s]",
 		e.Input, len(e.Matches), strings.Join(e.Matches, " "))
 }
@@ -95,12 +100,18 @@ func matchByPrefix(prefix string) ([]models.Task, error) {
 }
 
 func ambiguousErr(input string, tasks []models.Task) *AmbiguousIDError {
+	// matchByPrefix fetches maxAmbiguousIDs+1 rows so we can detect overflow.
+	// Trim back to the cap for display and flag HasMore.
+	hasMore := len(tasks) > maxAmbiguousIDs
+	if hasMore {
+		tasks = tasks[:maxAmbiguousIDs]
+	}
 	ids := make([]string, len(tasks))
 	for i, t := range tasks {
 		ids[i] = t.ID
 	}
 	sort.Strings(ids)
-	return &AmbiguousIDError{Input: input, Matches: ids}
+	return &AmbiguousIDError{Input: input, Matches: ids, HasMore: hasMore}
 }
 
 // escapeLike escapes SQL LIKE wildcards (%, _) and the escape char itself.
