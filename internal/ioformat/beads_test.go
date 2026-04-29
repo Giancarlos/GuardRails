@@ -1,0 +1,49 @@
+package ioformat
+
+import (
+	"strings"
+	"testing"
+)
+
+const sampleJSONL = `{"id":"bd-probe-xtw","title":"sample task","description":"example desc","status":"closed","priority":1,"issue_type":"feature","owner":"user@example.com","created_at":"2026-04-23T22:16:50Z","updated_at":"2026-04-23T22:17:36Z","closed_at":"2026-04-23T22:17:36Z","close_reason":"done","labels":["backend","urgent"],"comments":[{"id":"c1","issue_id":"bd-probe-xtw","author":"Alice","text":"a comment","created_at":"2026-04-23T22:17:02Z"}]}
+{"id":"bd-probe-7jq","title":"second","description":"dep child","status":"open","priority":2,"issue_type":"task","owner":"user@example.com","created_at":"2026-04-23T22:16:51Z","updated_at":"2026-04-23T22:16:51Z","dependencies":[{"issue_id":"bd-probe-7jq","depends_on_id":"bd-probe-xtw","type":"blocks"}]}
+{"_type":"memory","key":"some-persistent-memory","value":"some persistent memory"}
+{"id":"bd-probe-agt","title":"agent bead","status":"open","priority":2,"issue_type":"agent"}
+`
+
+func TestDecodeBeadsJSONL(t *testing.T) {
+	res, err := DecodeBeadsJSONL(strings.NewReader(sampleJSONL))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(res.Issues) != 2 {
+		t.Fatalf("expected 2 issues, got %d", len(res.Issues))
+	}
+	if res.MemoriesSkipped != 1 {
+		t.Errorf("MemoriesSkipped: want 1, got %d", res.MemoriesSkipped)
+	}
+	if res.InfraSkipped != 1 {
+		t.Errorf("InfraSkipped: want 1, got %d", res.InfraSkipped)
+	}
+	if res.Issues[0].ID != "bd-probe-xtw" || res.Issues[0].Status != "closed" {
+		t.Errorf("first issue mismatch: %+v", res.Issues[0])
+	}
+	if len(res.Issues[1].Dependencies) != 1 {
+		t.Errorf("expected 1 dep on second issue, got %d", len(res.Issues[1].Dependencies))
+	}
+}
+
+func TestDecodeBeadsJSONL_InvalidLine(t *testing.T) {
+	in := sampleJSONL + "not json\n"
+	res, err := DecodeBeadsJSONL(strings.NewReader(in))
+	if err == nil {
+		t.Fatal("expected error on invalid line")
+	}
+	if res.InvalidLines != 1 {
+		t.Errorf("InvalidLines: want 1, got %d", res.InvalidLines)
+	}
+	// Valid lines should still parse.
+	if len(res.Issues) != 2 {
+		t.Errorf("expected 2 issues despite bad line, got %d", len(res.Issues))
+	}
+}

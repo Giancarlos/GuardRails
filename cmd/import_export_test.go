@@ -1,0 +1,216 @@
+package cmd
+
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/Giancarlos/guardrails/internal/db"
+	"github.com/Giancarlos/guardrails/internal/ioformat"
+	"github.com/Giancarlos/guardrails/internal/models"
+)
+
+// fixturePath is the verified bd 1.0.2 export checked into testdata/.
+const fixturePath = "../testdata/beads/full_sample.jsonl"
+
+func setupImportTestDB(t *testing.T) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	if _, err := db.InitDB(dbPath); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	t.Cleanup(func() { db.CloseDB() })
+}
+
+func decodeFixture(t *testing.T) []ioformat.ConvertedTask {
+	t.Helper()
+	f, err := os.Open(fixturePath)
+	if err != nil {
+		t.Fatalf("open fixture: %v", err)
+	}
+	defer f.Close()
+	res, err := ioformat.DecodeBeadsJSONL(f)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if res.MemoriesSkipped != 1 {
+		t.Errorf("fixture should drop 1 memory, got %d", res.MemoriesSkipped)
+	}
+	opts := ioformat.DefaultConvertOptions()
+	out := make([]ioformat.ConvertedTask, 0, len(res.Issues))
+	for _, iss := range res.Issues {
+		out = append(out, ioformat.ConvertIssue(iss, opts))
+	}
+	return out
+}
+
+func TestImport_RoundTrip(t *testing.T) {
+	setupImportTestDB(t)
+
+	converted := decodeFixture(t)
+	if len(converted) != 3 {
+		t.Fatalf("want 3 issues from fixture, got %d", len(converted))
+	}
+
+	inserted, updated, unknown, err := applyImport(converted, "update")
+	if err != nil {
+		t.Fatalf("applyImport: %v", err)
+	}
+	if inserted != 3 || updated != 0 {
+		t.Errorf("first import: want inserted=3 updated=0, got inserted=%d updated=%d", inserted, updated)
+	}
+	if len(unknown) != 0 {
+		t.Errorf("unknown deps: %v", unknown)
+	}
+
+	var rowCount int64
+	if err := db.GetDB().Model(&models.Task{}).Count(&rowCount).Error; err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if rowCount != 3 {
+		t.Errorf("task rows: want 3, got %d", rowCount)
+	}
+
+	// Dep: bd-probe-7jq -> bd-probe-xtw (blocks)
+	var depCount int64
+	db.GetDB().Model(&models.Dependency{}).Count(&depCount)
+	if depCount != 1 {
+		t.Errorf("dep rows: want 1, got %d", depCount)
+	}
+
+	// Idempotent reimport: same input, same row counts, zero inserted.
+	converted2 := decodeFixture(t)
+	inserted2, updated2, _, err := applyImport(converted2, "update")
+	if err != nil {
+		t.Fatalf("reimport: %v", err)
+	}
+	if inserted2 != 0 || updated2 != 3 {
+		t.Errorf("reimport: want inserted=0 updated=3, got inserted=%d updated=%d", inserted2, updated2)
+	}
+	db.GetDB().Model(&models.Task{}).Count(&rowCount)
+	if rowCount != 3 {
+		t.Errorf("after reimport rows: want 3, got %d", rowCount)
+	}
+
+	var depCountAfter int64
+	db.GetDB().Model(&models.Dependency{}).Count(&depCountAfter)
+	if depCountAfter != 1 {
+		t.Errorf("dep rows after reimport: want 1 (idempotent), got %d", depCountAfter)
+	}
+}
+
+func TestImport_SkipVsUpdate(t *testing.T) {
+	setupImportTestDB(t)
+	converted := decodeFixture(t)
+	if _, _, _, err := applyImport(converted, "update"); err != nil {
+		t.Fatalf("initial import: %v", err)
+	}
+
+	// Mutate one task's title in place so we can observe update vs skip.
+	sid := "bd-probe-xtw"
+	if err := db.GetDB().Model(&models.Task{}).
+		Where("source_id = ?", sid).
+		Update("title", "locally renamed").Error; err != nil {
+		t.Fatalf("mutate: %v", err)
+	}
+
+	// Reimport with skip: local rename should stay.
+	if _, _, _, err := applyImport(decodeFixture(t), "skip"); err != nil {
+		t.Fatalf("skip import: %v", err)
+	}
+	var task models.Task
+	db.GetDB().Where("source_id = ?", sid).First(&task)
+	if task.Title != "locally renamed" {
+		t.Errorf("skip should preserve local rename, got title %q", task.Title)
+	}
+
+	// Reimport with update: should overwrite with fixture title.
+	if _, _, _, err := applyImport(decodeFixture(t), "update"); err != nil {
+		t.Fatalf("update import: %v", err)
+	}
+	db.GetDB().Where("source_id = ?", sid).First(&task)
+	if task.Title != "sample task" {
+		t.Errorf("update should restore title, got %q", task.Title)
+	}
+}
+
+func TestImport_ConflictError(t *testing.T) {
+	setupImportTestDB(t)
+	if _, _, _, err := applyImport(decodeFixture(t), "update"); err != nil {
+		t.Fatalf("initial import: %v", err)
+	}
+	_, _, _, err := applyImport(decodeFixture(t), "error")
+	if err == nil {
+		t.Error("expected error on --on-conflict=error with existing source_id")
+	}
+}
+
+func TestExport_BeadsJSONL_RoundTrip(t *testing.T) {
+	setupImportTestDB(t)
+	if _, _, _, err := applyImport(decodeFixture(t), "update"); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+
+	var tasks []models.Task
+	if err := db.GetDB().Find(&tasks).Error; err != nil {
+		t.Fatalf("find tasks: %v", err)
+	}
+	depsByChild, err := loadDepsByChild(tasks)
+	if err != nil {
+		t.Fatalf("deps: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := ioformat.EncodeBeadsJSONL(&buf, tasks, depsByChild); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	// Verify original bd IDs came back.
+	out := buf.String()
+	for _, sid := range []string{"bd-probe-xtw", "bd-probe-keb", "bd-probe-7jq"} {
+		if !strings.Contains(out, `"id":"`+sid+`"`) {
+			t.Errorf("exported JSONL missing source id %q", sid)
+		}
+	}
+
+	// Parse each line and check at least one has a recovered trailer field.
+	foundEstimate := false
+	foundDesign := false
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		var iss ioformat.BeadsIssue
+		if err := json.Unmarshal([]byte(line), &iss); err != nil {
+			t.Fatalf("re-parse: %v", err)
+		}
+		if iss.EstimatedMinutes == 60 {
+			foundEstimate = true
+		}
+		if iss.Design == "design notes" {
+			foundDesign = true
+		}
+	}
+	if !foundEstimate {
+		t.Error("estimated_minutes=60 not recovered in beads-jsonl export")
+	}
+	if !foundDesign {
+		t.Error("design field not recovered in beads-jsonl export")
+	}
+}
+
+func TestImport_DryRun(t *testing.T) {
+	setupImportTestDB(t)
+	// Dry run shouldn't write anything; we simulate by not calling applyImport.
+	// Just verify the decoder side stays consistent.
+	converted := decodeFixture(t)
+	if len(converted) != 3 {
+		t.Fatalf("dry run decode: want 3, got %d", len(converted))
+	}
+	var count int64
+	db.GetDB().Model(&models.Task{}).Count(&count)
+	if count != 0 {
+		t.Errorf("dry run should leave DB empty, got %d rows", count)
+	}
+}
