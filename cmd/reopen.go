@@ -21,9 +21,9 @@ func init() {
 }
 
 func runReopen(cmd *cobra.Command, args []string) error {
-	task, err := db.GetTaskByID(args[0])
+	task, err := resolveTaskID(args[0])
 	if err != nil {
-		return fmt.Errorf("cannot reopen task: task '%s' not found (use 'gur list' to see available tasks)", args[0])
+		return err
 	}
 
 	if !task.IsClosed() {

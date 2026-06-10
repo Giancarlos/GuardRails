@@ -91,15 +91,18 @@ func wouldCreateCycle(database *gorm.DB, blockerID, blockedID string) bool {
 }
 
 func runDepAdd(cmd *cobra.Command, args []string) error {
-	blockerID, blockedID := args[0], args[1]
 	database := db.GetDB()
 
-	if _, err := db.GetTaskByID(blockerID); err != nil {
-		return fmt.Errorf("cannot add dependency: blocker task '%s' not found (use 'gur list' to see available tasks)", blockerID)
+	// Resolve both args BEFORE any mutation (natural all-or-nothing).
+	blocker, err := resolveTaskID(args[0])
+	if err != nil {
+		return fmt.Errorf("blocker: %w", err)
 	}
-	if _, err := db.GetTaskByID(blockedID); err != nil {
-		return fmt.Errorf("cannot add dependency: blocked task '%s' not found (use 'gur list' to see available tasks)", blockedID)
+	blocked, err := resolveTaskID(args[1])
+	if err != nil {
+		return fmt.Errorf("blocked: %w", err)
 	}
+	blockerID, blockedID := blocker.ID, blocked.ID
 
 	if blockerID == blockedID {
 		return fmt.Errorf("cannot add dependency: task '%s' cannot block itself", blockerID)
@@ -132,16 +135,17 @@ func runDepAdd(cmd *cobra.Command, args []string) error {
 }
 
 func runDepRemove(cmd *cobra.Command, args []string) error {
-	blockerID, blockedID := args[0], args[1]
 	database := db.GetDB()
 
-	// Validate that both tasks exist
-	if _, err := db.GetTaskByID(blockerID); err != nil {
-		return fmt.Errorf("cannot remove dependency: blocker task '%s' not found", blockerID)
+	blocker, err := resolveTaskID(args[0])
+	if err != nil {
+		return fmt.Errorf("blocker: %w", err)
 	}
-	if _, err := db.GetTaskByID(blockedID); err != nil {
-		return fmt.Errorf("cannot remove dependency: blocked task '%s' not found", blockedID)
+	blocked, err := resolveTaskID(args[1])
+	if err != nil {
+		return fmt.Errorf("blocked: %w", err)
 	}
+	blockerID, blockedID := blocker.ID, blocked.ID
 
 	result := database.Where("parent_id = ? AND child_id = ?", blockerID, blockedID).Delete(&models.Dependency{})
 	if result.RowsAffected == 0 {

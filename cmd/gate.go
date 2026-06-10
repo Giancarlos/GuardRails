@@ -370,11 +370,12 @@ func runGateResult(gateID string, taskID string, result string) error {
 		return fmt.Errorf("cannot update gate: gate '%s' not found (use 'gur gate list' to see available gates)", gateID)
 	}
 
-	// Validate task exists
-	task, err := db.GetTaskByID(taskID)
+	// Resolve task (supports prefix matching).
+	task, err := resolveTaskID(taskID)
 	if err != nil {
-		return fmt.Errorf("cannot update gate: task '%s' not found (use 'gur list' to see available tasks)", taskID)
+		return err
 	}
+	taskID = task.ID
 
 	// Find the link between gate and task
 	var link models.GateTaskLink
@@ -426,19 +427,21 @@ func runGateLink(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot link gate: gate '%s' not found (use 'gur gate list' to see available gates)", gateID)
 	}
 
-	// Validate task exists
-	if _, err := db.GetTaskByID(taskID); err != nil {
-		return fmt.Errorf("cannot link gate: task '%s' not found (use 'gur list' to see available tasks)", taskID)
+	// Resolve task (supports prefix matching).
+	task, err := resolveTaskID(taskID)
+	if err != nil {
+		return err
 	}
+	taskID = task.ID
 
 	// Check if already linked
 	var existing models.GateTaskLink
-	err := database.Where("gate_id = ? AND task_id = ?", gateID, taskID).First(&existing).Error
-	if err == nil {
+	lookupErr := database.Where("gate_id = ? AND task_id = ?", gateID, taskID).First(&existing).Error
+	if lookupErr == nil {
 		return fmt.Errorf("cannot link gate: gate '%s' is already linked to task '%s'", gateID, taskID)
 	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return fmt.Errorf("cannot link gate: failed to check existing link: %w", err)
+	if !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+		return fmt.Errorf("cannot link gate: failed to check existing link: %w", lookupErr)
 	}
 
 	link := &models.GateTaskLink{
@@ -466,10 +469,16 @@ func runGateUnlink(cmd *cobra.Command, args []string) error {
 	gateID, taskID := args[0], args[1]
 	database := db.GetDB()
 
+	// Resolve task (supports prefix matching).
+	task, err := resolveTaskID(taskID)
+	if err != nil {
+		return err
+	}
+	taskID = task.ID
+
 	// Find the link first to check its status
 	var link models.GateTaskLink
-	err := database.Where("gate_id = ? AND task_id = ?", gateID, taskID).First(&link).Error
-	if err != nil {
+	if err := database.Where("gate_id = ? AND task_id = ?", gateID, taskID).First(&link).Error; err != nil {
 		return fmt.Errorf("cannot unlink gate: no link exists between gate '%s' and task '%s' (use 'gur gate show %s' to see linked tasks)",
 			gateID, taskID, gateID)
 	}
