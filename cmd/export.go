@@ -40,7 +40,7 @@ func init() {
 	exportCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Output file path (default: stdout)")
 	exportCmd.Flags().BoolVar(&exportIncludeAll, "all", false, "Include archived tasks")
 	exportCmd.Flags().BoolVar(&exportIncludeClosed, "include-closed", true, "Include closed tasks")
-	exportCmd.Flags().StringArrayVar(&exportExcludeLabels, "exclude-labels", nil, "Skip tasks carrying any of these labels")
+	exportCmd.Flags().StringSliceVar(&exportExcludeLabels, "exclude-labels", nil, "Skip tasks carrying any of these labels (comma-separated or repeated)")
 }
 
 func runExport(cmd *cobra.Command, args []string) error {

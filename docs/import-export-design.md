@@ -1,6 +1,8 @@
 # `gur import` / `gur export` — Design Notes
 
-Branch: `feat/import-export`. Status: design only; no code yet.
+Branch: `feat/import-export`. Status: implemented (see `cmd/import.go`,
+`cmd/export.go`, `internal/ioformat/`); this doc records the design decisions
+and field mappings. Deviations from the original plan are noted inline.
 
 ## 1. Goal
 
@@ -76,7 +78,7 @@ Source: set to a new constant `SourceBeads = "beads"` (already have `local`, `gi
 | bd type | gur type |
 |---|---|
 | `blocks` | `blocks` |
-| `parent-child` | `parent-child` (and also set `tasks.parent_id` for the child so hierarchy renders) |
+| `parent-child` | `parent-child` (v1 creates the dependency row only; `tasks.parent_id` is *not* set on import, so bd hierarchies don't render as gur subtasks — revisit if needed) |
 | `related`, `relates-to` | `related` |
 | `tracks`, `discovered-from`, `until`, `caused-by`, `validates`, `supersedes` | `related` + keep original in a comment/note (v1). Proper mapping waits on dep-type expansion in `models/dependency.go`. |
 
@@ -112,8 +114,7 @@ gur import <file> [flags]
   --dry-run                   Parse + validate, print summary, no writes
   --on-conflict update|skip|error   (default update; match by source_id — idempotent reimport)
   --no-comments               Don't fold comments into notes
-  --include-closed            (default: true)
-  --map-type <bd>=<gur>       Repeatable, override default type mapping
+  --map-type <bd>=<gur>       Repeatable, override default type mapping (target validated)
   --label-prefix <str>        Prefix synthesized labels (default: "bd:")
 ```
 
@@ -142,23 +143,25 @@ gur export [flags]
 
 ```
 cmd/
-  import.go          # cobra command + flag plumbing
-  import_test.go     # golden-file tests using fixtures below
+  import.go               # cobra command + flag plumbing
   export.go
-  export_test.go
+  import_export_test.go   # round-trip / idempotency tests against the DB
 internal/
   ioformat/
     beads.go         # BeadsIssue struct, decoder
     beads_test.go
-    gur.go           # native JSONL encoder/decoder
+    gur.go           # native JSONL encoder + beads encoder
+    gur_test.go
     mapping.go       # status/type/dep mapping tables (easy to unit test)
+    mapping_test.go
 testdata/
   beads/
-    minimal.jsonl
-    full.jsonl       # copy of /tmp/bd-probe/full2.jsonl
-    with_memories.jsonl
-    cycle.jsonl
+    full_sample.jsonl   # verified bd 1.0.2 export (3 issues, 1 dep, 1 memory)
 ```
+
+Adversarial cases (cycles, self-deps, hostile trailers, BOM, oversized lines,
+empty ids) are covered by inline fixtures in the unit tests rather than
+checked-in files.
 
 Keep cmd/*.go thin — parse flags, open DB, call into `internal/ioformat`. Mirrors how `cmd/sync.go` delegates to helpers.
 
