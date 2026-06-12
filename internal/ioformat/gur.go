@@ -3,10 +3,7 @@ package ioformat
 import (
 	"encoding/json"
 	"io"
-	"regexp"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/Giancarlos/guardrails/internal/models"
 )
@@ -41,21 +38,34 @@ func EncodeGurJSONL(w io.Writer, tasks []models.Task, depsByChild map[string][]m
 	return nil
 }
 
-// EncodeBeadsJSONL writes tasks in bd 1.0.x-compatible JSONL. Lossy on:
-// archived status (→ closed + label), hierarchical subtask IDs (flattened to
-// parent-child deps — the hierarchy already lives in tasks.parent_id).
-//
-// Dep refs are rewritten back to source_id where available so round-tripped
-// exports look natural to bd tooling; tasks without a source_id keep their
-// gur-* id.
-func EncodeBeadsJSONL(w io.Writer, tasks []models.Task, depsByChild map[string][]models.Dependency) error {
+// BuildBeadsIDMap maps gur task IDs to the IDs used in beads-jsonl export:
+// the original bd source_id where available, otherwise the gur ID with
+// hierarchical dots flattened ("gur-abc.1" → "gur-abc-1") so the result is
+// bd-compatible. Build it from *all* tasks in the DB — not just the exported
+// subset — so dep refs to excluded tasks (archived, label-filtered) still
+// resolve to their bd IDs.
+func BuildBeadsIDMap(tasks []models.Task) map[string]string {
 	idMap := make(map[string]string, len(tasks))
 	for _, t := range tasks {
 		if t.SourceID != nil && *t.SourceID != "" {
 			idMap[t.ID] = *t.SourceID
 		} else {
-			idMap[t.ID] = t.ID
+			idMap[t.ID] = strings.ReplaceAll(t.ID, ".", "-")
 		}
+	}
+	return idMap
+}
+
+// EncodeBeadsJSONL writes tasks in bd 1.0.x-compatible JSONL. Lossy on
+// archived status (→ closed + label). Hierarchical subtask IDs are flattened
+// ("gur-abc.1" → "gur-abc-1") and tasks.parent_id is emitted as a
+// parent-child dependency so the hierarchy survives.
+//
+// idMap rewrites task refs to bd source IDs where available (see
+// BuildBeadsIDMap); pass nil to build one from the exported tasks only.
+func EncodeBeadsJSONL(w io.Writer, tasks []models.Task, depsByChild map[string][]models.Dependency, idMap map[string]string) error {
+	if idMap == nil {
+		idMap = BuildBeadsIDMap(tasks)
 	}
 
 	enc := json.NewEncoder(w)
@@ -68,7 +78,7 @@ func EncodeBeadsJSONL(w io.Writer, tasks []models.Task, depsByChild map[string][
 	return nil
 }
 
-var bdTrailerRE = regexp.MustCompile(`(?s)\n?<!-- bd: (.*?) -->\s*$`)
+const bdTrailerMarker = "<!-- bd: "
 
 func taskToBeads(t models.Task, deps []models.Dependency, idMap map[string]string) BeadsIssue {
 	status := t.Status
@@ -82,9 +92,9 @@ func taskToBeads(t models.Task, deps []models.Dependency, idMap map[string]strin
 	notes, trailer := splitNotesTrailer(t.Notes)
 
 	issue := BeadsIssue{
-		// For beads-jsonl export, we use the gur ID as-is. If the task was
-		// imported from bd, the original id lives in t.SourceID — prefer that.
-		ID:                 preferSourceID(t),
+		// idMap resolves to the bd source_id when the task was imported from
+		// bd, otherwise the (flattened) gur ID.
+		ID:                 resolveExportID(t.ID, idMap),
 		Title:              t.Title,
 		Description:        desc,
 		Design:             design,
@@ -103,11 +113,25 @@ func taskToBeads(t models.Task, deps []models.Dependency, idMap map[string]strin
 
 	applyTrailer(&issue, trailer)
 
+	hasParentDep := false
 	for _, d := range deps {
+		if d.Type == models.DepTypeParentChild && d.ParentID == t.ParentID {
+			hasParentDep = true
+		}
 		issue.Dependencies = append(issue.Dependencies, BeadsDependency{
 			IssueID:     resolveExportID(d.ChildID, idMap),
 			DependsOnID: resolveExportID(d.ParentID, idMap),
 			Type:        mapDepTypeToBeads(d.Type),
+		})
+	}
+
+	// Subtask hierarchy lives in tasks.parent_id, not the dependencies table;
+	// emit it as a parent-child dep so bd tooling sees it.
+	if t.ParentID != "" && !hasParentDep {
+		issue.Dependencies = append(issue.Dependencies, BeadsDependency{
+			IssueID:     resolveExportID(t.ID, idMap),
+			DependsOnID: resolveExportID(t.ParentID, idMap),
+			Type:        "parent-child",
 		})
 	}
 
@@ -119,13 +143,6 @@ func resolveExportID(gurID string, idMap map[string]string) string {
 		return v
 	}
 	return gurID
-}
-
-func preferSourceID(t models.Task) string {
-	if t.SourceID != nil && *t.SourceID != "" {
-		return *t.SourceID
-	}
-	return t.ID
 }
 
 func mapTypeToBeads(t string) string {
@@ -173,42 +190,36 @@ func splitDescription(s string) (desc, design, acceptance string) {
 	return
 }
 
-// splitNotesTrailer returns (notes, trailer) where trailer is the raw content
-// inside `<!-- bd: ... -->` if present at end of notes.
+// splitNotesTrailer returns (notes, trailer) where trailer is the JSON
+// payload of a `<!-- bd: {...} -->` comment at the very end of notes. Only
+// the LAST marker occurrence is considered (earlier ones are user content),
+// and anything that isn't valid trailer JSON is treated as plain notes.
 func splitNotesTrailer(notes string) (string, string) {
-	m := bdTrailerRE.FindStringSubmatchIndex(notes)
-	if m == nil {
+	idx := strings.LastIndex(notes, bdTrailerMarker)
+	if idx < 0 {
 		return notes, ""
 	}
-	trailer := notes[m[2]:m[3]]
-	return strings.TrimRight(notes[:m[0]], "\n"), trailer
+	rest := strings.TrimRight(notes[idx+len(bdTrailerMarker):], " \t\n")
+	payload, ok := strings.CutSuffix(rest, " -->")
+	if !ok {
+		return notes, ""
+	}
+	if !json.Valid([]byte(payload)) || !strings.HasPrefix(payload, "{") {
+		return notes, ""
+	}
+	return strings.TrimRight(notes[:idx], "\n"), payload
 }
 
 func applyTrailer(issue *BeadsIssue, trailer string) {
 	if trailer == "" {
 		return
 	}
-	for _, part := range strings.Split(trailer, ";") {
-		part = strings.TrimSpace(part)
-		k, v, ok := strings.Cut(part, "=")
-		if !ok {
-			continue
-		}
-		switch k {
-		case "estimated_minutes":
-			if n, err := strconv.Atoi(v); err == nil {
-				issue.EstimatedMinutes = n
-			}
-		case "due_at":
-			if ts, err := time.Parse(time.RFC3339, v); err == nil {
-				issue.DueAt = &ts
-			}
-		case "defer_until":
-			if ts, err := time.Parse(time.RFC3339, v); err == nil {
-				issue.DeferUntil = &ts
-			}
-		case "external_ref":
-			issue.ExternalRef = v
-		}
+	var tr bdTrailer
+	if err := json.Unmarshal([]byte(trailer), &tr); err != nil {
+		return
 	}
+	issue.EstimatedMinutes = tr.EstimatedMinutes
+	issue.DueAt = tr.DueAt
+	issue.DeferUntil = tr.DeferUntil
+	issue.ExternalRef = tr.ExternalRef
 }

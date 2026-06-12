@@ -4,6 +4,7 @@ package ioformat
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -68,6 +69,8 @@ type DecodeResult struct {
 	MemoriesSkipped int
 	InfraSkipped    int
 	InvalidLines    int
+	// LineErrors describes each line that failed to parse ("line N: <err>").
+	LineErrors []string
 }
 
 // coreIssueTypes is the set of issue_type values we accept as tasks.
@@ -86,19 +89,22 @@ var coreIssueTypes = map[string]bool{
 }
 
 // DecodeBeadsJSONL reads a bd JSONL stream and returns the parsed issues
-// along with skip counts. Parse errors on individual lines are counted and
-// reported via DecodeResult.InvalidLines; the first such error is returned.
+// along with skip counts. Parse errors on individual lines are soft: they are
+// counted in DecodeResult.InvalidLines (with details in LineErrors) and
+// decoding continues. Only stream-level read failures return an error.
 func DecodeBeadsJSONL(r io.Reader) (*DecodeResult, error) {
 	res := &DecodeResult{}
 	sc := bufio.NewScanner(r)
 	// bd descriptions / notes can be large; raise the line limit to 4 MiB.
 	sc.Buffer(make([]byte, 64*1024), 4*1024*1024)
 
-	var firstErr error
 	lineNo := 0
 	for sc.Scan() {
 		lineNo++
 		raw := sc.Bytes()
+		if lineNo == 1 {
+			raw = bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf")) // UTF-8 BOM
+		}
 		if len(raw) == 0 {
 			continue
 		}
@@ -106,9 +112,7 @@ func DecodeBeadsJSONL(r io.Reader) (*DecodeResult, error) {
 		var issue BeadsIssue
 		if err := json.Unmarshal(raw, &issue); err != nil {
 			res.InvalidLines++
-			if firstErr == nil {
-				firstErr = fmt.Errorf("line %d: %w", lineNo, err)
-			}
+			res.LineErrors = append(res.LineErrors, fmt.Sprintf("line %d: %v", lineNo, err))
 			continue
 		}
 
@@ -126,10 +130,18 @@ func DecodeBeadsJSONL(r io.Reader) (*DecodeResult, error) {
 			continue
 		}
 
+		// An empty id would make every such record upsert onto the same
+		// source_id="" row, silently merging distinct records.
+		if issue.ID == "" {
+			res.InvalidLines++
+			res.LineErrors = append(res.LineErrors, fmt.Sprintf("line %d: missing issue id", lineNo))
+			continue
+		}
+
 		res.Issues = append(res.Issues, issue)
 	}
 	if err := sc.Err(); err != nil {
 		return res, fmt.Errorf("scan: %w", err)
 	}
-	return res, firstErr
+	return res, nil
 }

@@ -138,6 +138,39 @@ func TestImport_SkipVsUpdate(t *testing.T) {
 	}
 }
 
+func TestImport_ReimportPreservesTimestampsAndLocalColumns(t *testing.T) {
+	setupImportTestDB(t)
+	if _, _, _, err := applyImport(decodeFixture(t), "update"); err != nil {
+		t.Fatalf("initial import: %v", err)
+	}
+
+	// Simulate local-only state that beads knows nothing about.
+	sid := "bd-probe-keb"
+	if err := db.GetDB().Model(&models.Task{}).Where("source_id = ?", sid).
+		UpdateColumns(map[string]any{"synced": true, "summary": "local summary"}).Error; err != nil {
+		t.Fatalf("mutate: %v", err)
+	}
+
+	if _, _, _, err := applyImport(decodeFixture(t), "update"); err != nil {
+		t.Fatalf("reimport: %v", err)
+	}
+
+	var task models.Task
+	if err := db.GetDB().Where("source_id = ?", sid).First(&task).Error; err != nil {
+		t.Fatalf("find: %v", err)
+	}
+	// Fixture says updated_at 2026-04-23T22:18:14Z; reimport must not clobber it.
+	if got := task.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"); got != "2026-04-23T22:18:14Z" {
+		t.Errorf("updated_at clobbered on reimport: got %s", got)
+	}
+	if !task.Synced {
+		t.Error("reimport wiped local-only column synced")
+	}
+	if task.Summary != "local summary" {
+		t.Errorf("reimport wiped local-only column summary: got %q", task.Summary)
+	}
+}
+
 func TestImport_ConflictError(t *testing.T) {
 	setupImportTestDB(t)
 	if _, _, _, err := applyImport(decodeFixture(t), "update"); err != nil {
@@ -165,7 +198,7 @@ func TestExport_BeadsJSONL_RoundTrip(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := ioformat.EncodeBeadsJSONL(&buf, tasks, depsByChild); err != nil {
+	if err := ioformat.EncodeBeadsJSONL(&buf, tasks, depsByChild, nil); err != nil {
 		t.Fatalf("encode: %v", err)
 	}
 
@@ -197,6 +230,60 @@ func TestExport_BeadsJSONL_RoundTrip(t *testing.T) {
 	}
 	if !foundDesign {
 		t.Error("design field not recovered in beads-jsonl export")
+	}
+}
+
+func convertRaw(t *testing.T, jsonl string) []ioformat.ConvertedTask {
+	t.Helper()
+	res, err := ioformat.DecodeBeadsJSONL(strings.NewReader(jsonl))
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	opts := ioformat.DefaultConvertOptions()
+	out := make([]ioformat.ConvertedTask, 0, len(res.Issues))
+	for _, iss := range res.Issues {
+		out = append(out, ioformat.ConvertIssue(iss, opts))
+	}
+	return out
+}
+
+func TestImport_SelfDepAndCycleSkipped(t *testing.T) {
+	setupImportTestDB(t)
+	jsonl := `{"id":"bd-self","title":"self","status":"open","issue_type":"task","dependencies":[{"issue_id":"bd-self","depends_on_id":"bd-self","type":"blocks"}]}
+{"id":"bd-a","title":"a","status":"open","issue_type":"task","dependencies":[{"issue_id":"bd-a","depends_on_id":"bd-b","type":"blocks"}]}
+{"id":"bd-b","title":"b","status":"open","issue_type":"task","dependencies":[{"issue_id":"bd-b","depends_on_id":"bd-a","type":"blocks"}]}
+`
+	_, _, skipped, err := applyImport(convertRaw(t, jsonl), "update")
+	if err != nil {
+		t.Fatalf("applyImport: %v", err)
+	}
+	if len(skipped) != 2 {
+		t.Fatalf("want 2 skipped deps (self + cycle), got %v", skipped)
+	}
+	if !strings.Contains(skipped[0], "self-reference") {
+		t.Errorf("first skip should be self-reference: %v", skipped)
+	}
+	if !strings.Contains(skipped[1], "cycle") {
+		t.Errorf("second skip should be cycle: %v", skipped)
+	}
+	// Only the first edge of the would-be cycle survives.
+	var depCount int64
+	db.GetDB().Model(&models.Dependency{}).Count(&depCount)
+	if depCount != 1 {
+		t.Errorf("dep rows: want 1, got %d", depCount)
+	}
+}
+
+func TestParseTypeMaps_RejectsInvalidTarget(t *testing.T) {
+	if _, err := parseTypeMaps([]string{"task=banana"}); err == nil {
+		t.Error("expected error for invalid target type")
+	}
+	m, err := parseTypeMaps([]string{"spike=bug", "story=feature"})
+	if err != nil {
+		t.Fatalf("valid maps rejected: %v", err)
+	}
+	if m["spike"] != "bug" || m["story"] != "feature" {
+		t.Errorf("mapping wrong: %v", m)
 	}
 }
 

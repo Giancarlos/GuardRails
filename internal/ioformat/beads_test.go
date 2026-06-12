@@ -36,14 +36,43 @@ func TestDecodeBeadsJSONL(t *testing.T) {
 func TestDecodeBeadsJSONL_InvalidLine(t *testing.T) {
 	in := sampleJSONL + "not json\n"
 	res, err := DecodeBeadsJSONL(strings.NewReader(in))
-	if err == nil {
-		t.Fatal("expected error on invalid line")
+	if err != nil {
+		t.Fatalf("invalid lines are soft errors, got: %v", err)
 	}
 	if res.InvalidLines != 1 {
 		t.Errorf("InvalidLines: want 1, got %d", res.InvalidLines)
 	}
+	if len(res.LineErrors) != 1 || !strings.HasPrefix(res.LineErrors[0], "line 5:") {
+		t.Errorf("LineErrors: want one entry for line 5, got %v", res.LineErrors)
+	}
 	// Valid lines should still parse.
 	if len(res.Issues) != 2 {
 		t.Errorf("expected 2 issues despite bad line, got %d", len(res.Issues))
+	}
+}
+
+func TestDecodeBeadsJSONL_EmptyIDSkipped(t *testing.T) {
+	in := `{"id":"","title":"no id","status":"open","issue_type":"task"}` + "\n" +
+		`{"id":"bd-ok","title":"ok","status":"open","issue_type":"task"}` + "\n"
+	res, err := DecodeBeadsJSONL(strings.NewReader(in))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(res.Issues) != 1 || res.Issues[0].ID != "bd-ok" {
+		t.Errorf("want only bd-ok, got %+v", res.Issues)
+	}
+	if res.InvalidLines != 1 || len(res.LineErrors) != 1 || !strings.Contains(res.LineErrors[0], "missing issue id") {
+		t.Errorf("empty id should be a counted line error, got invalid=%d errs=%v", res.InvalidLines, res.LineErrors)
+	}
+}
+
+func TestDecodeBeadsJSONL_BOMStripped(t *testing.T) {
+	in := "\xef\xbb\xbf" + `{"id":"bd-bom","title":"bom","status":"open","issue_type":"task"}` + "\n"
+	res, err := DecodeBeadsJSONL(strings.NewReader(in))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(res.Issues) != 1 || res.InvalidLines != 0 {
+		t.Errorf("BOM line should parse: issues=%d invalid=%d errs=%v", len(res.Issues), res.InvalidLines, res.LineErrors)
 	}
 }

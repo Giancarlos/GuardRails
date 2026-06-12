@@ -78,15 +78,26 @@ func runExport(cmd *cobra.Command, args []string) error {
 	case "gur-jsonl":
 		err = ioformat.EncodeGurJSONL(w, tasks, depsByChild)
 	case "beads-jsonl":
-		err = ioformat.EncodeBeadsJSONL(w, tasks, depsByChild)
+		// Build the id map from every task in the DB (not just the exported
+		// subset) so dep refs to excluded tasks still resolve to bd IDs.
+		var allTasks []models.Task
+		if err := database.Find(&allTasks).Error; err != nil {
+			return fmt.Errorf("query tasks for id map: %w", err)
+		}
+		err = ioformat.EncodeBeadsJSONL(w, tasks, depsByChild, ioformat.BuildBeadsIDMap(allTasks))
 	}
 	if err != nil {
 		return fmt.Errorf("encode: %w", err)
 	}
 
+	// When the JSONL stream goes to stdout, keep stdout pure: no summary at
+	// all in --json mode (it would corrupt the stream), stderr otherwise.
+	if exportOutput == "" {
+		return nil
+	}
 	if IsJSONOutput() {
 		OutputJSON(map[string]any{"exported": len(tasks), "format": exportFormat, "output": exportOutput})
-	} else if exportOutput != "" {
+	} else {
 		fmt.Fprintf(os.Stderr, "exported %d task(s) to %s\n", len(tasks), exportOutput)
 	}
 	return nil

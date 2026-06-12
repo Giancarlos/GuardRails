@@ -1,9 +1,11 @@
 package ioformat
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Giancarlos/guardrails/internal/models"
 )
@@ -177,11 +179,16 @@ func clampPriority(p int) int {
 	return p
 }
 
+// truncate cuts s to at most max bytes without splitting a UTF-8 rune.
 func truncate(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
-	return s[:max]
+	cut := max
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
 }
 
 // buildDescription merges bd's description + design + acceptance_criteria
@@ -237,24 +244,37 @@ func buildNotes(issue BeadsIssue, includeComments bool) string {
 	return b.String()
 }
 
+// bdTrailer carries bd fields that have no direct gur column. It is stashed
+// at the end of notes as `<!-- bd: {json} -->`; JSON encoding keeps values
+// containing delimiters (URLs with `;`/`=`, etc.) intact.
+type bdTrailer struct {
+	EstimatedMinutes int        `json:"estimated_minutes,omitempty"`
+	DueAt            *time.Time `json:"due_at,omitempty"`
+	DeferUntil       *time.Time `json:"defer_until,omitempty"`
+	ExternalRef      string     `json:"external_ref,omitempty"`
+}
+
+func (tr bdTrailer) isZero() bool {
+	return tr.EstimatedMinutes == 0 && tr.DueAt == nil && tr.DeferUntil == nil && tr.ExternalRef == ""
+}
+
 // buildBdTrailer emits fields that have no direct gur column as an HTML
 // comment so round-trip export can recover them.
 func buildBdTrailer(issue BeadsIssue) string {
-	var parts []string
+	tr := bdTrailer{
+		DueAt:       issue.DueAt,
+		DeferUntil:  issue.DeferUntil,
+		ExternalRef: issue.ExternalRef,
+	}
 	if issue.EstimatedMinutes > 0 {
-		parts = append(parts, fmt.Sprintf("estimated_minutes=%d", issue.EstimatedMinutes))
+		tr.EstimatedMinutes = issue.EstimatedMinutes
 	}
-	if issue.DueAt != nil {
-		parts = append(parts, "due_at="+issue.DueAt.Format(time.RFC3339))
-	}
-	if issue.DeferUntil != nil {
-		parts = append(parts, "defer_until="+issue.DeferUntil.Format(time.RFC3339))
-	}
-	if issue.ExternalRef != "" {
-		parts = append(parts, "external_ref="+issue.ExternalRef)
-	}
-	if len(parts) == 0 {
+	if tr.isZero() {
 		return ""
 	}
-	return "<!-- bd: " + strings.Join(parts, "; ") + " -->"
+	payload, err := json.Marshal(tr)
+	if err != nil {
+		return ""
+	}
+	return "<!-- bd: " + string(payload) + " -->"
 }

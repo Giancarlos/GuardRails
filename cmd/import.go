@@ -92,21 +92,24 @@ func runImport(cmd *cobra.Command, args []string) error {
 		"infra_skipped":    res.InfraSkipped,
 		"invalid_lines":    res.InvalidLines,
 	}
+	if len(res.LineErrors) > 0 {
+		summary["line_errors"] = res.LineErrors
+	}
 
 	if importDryRun {
 		printImportSummary(summary, 0, 0, nil)
 		return nil
 	}
 
-	inserted, updated, unknownDeps, err := applyImport(converted, importOnConflict)
+	inserted, updated, skippedDeps, err := applyImport(converted, importOnConflict)
 	if err != nil {
 		return err
 	}
 
 	summary["inserted"] = inserted
 	summary["updated"] = updated
-	summary["unknown_dep_targets"] = len(unknownDeps)
-	printImportSummary(summary, inserted, updated, unknownDeps)
+	summary["deps_skipped"] = len(skippedDeps)
+	printImportSummary(summary, inserted, updated, skippedDeps)
 	return nil
 }
 
@@ -114,23 +117,52 @@ func parseTypeMaps(raw []string) (map[string]string, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
+	validTargets := map[string]bool{
+		models.TypeTask: true, models.TypeBug: true,
+		models.TypeFeature: true, models.TypeEpic: true,
+	}
 	m := make(map[string]string, len(raw))
 	for _, s := range raw {
 		k, v, ok := strings.Cut(s, "=")
 		if !ok || k == "" || v == "" {
 			return nil, fmt.Errorf("invalid --map-type %q: want bd_type=gur_type", s)
 		}
+		if !validTargets[v] {
+			return nil, fmt.Errorf("invalid --map-type %q: target must be one of task, bug, feature, epic", s)
+		}
 		m[k] = v
 	}
 	return m, nil
 }
 
+// reaches reports whether target is reachable from start by following the
+// blocker -> blocked edges in adj (BFS, mirrors wouldCreateCycle).
+func reaches(adj map[string][]string, start, target string) bool {
+	visited := map[string]bool{start: true}
+	queue := []string{start}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, next := range adj[current] {
+			if next == target {
+				return true
+			}
+			if !visited[next] {
+				visited[next] = true
+				queue = append(queue, next)
+			}
+		}
+	}
+	return false
+}
+
 // applyImport runs the whole insert/upsert in a single transaction.
-// Returns (inserted, updated, unknownDepTargets, error).
+// Returns (inserted, updated, skippedDeps, error). skippedDeps lists
+// dependency edges dropped for unknown targets, self-references, or cycles.
 func applyImport(converted []ioformat.ConvertedTask, onConflict string) (int, int, []string, error) {
 	database := db.GetDB()
 	var inserted, updated int
-	var unknownDeps []string
+	var skippedDeps []string
 
 	err := database.Transaction(func(tx *gorm.DB) error {
 		bdToGur := make(map[string]string, len(converted))
@@ -149,9 +181,26 @@ func applyImport(converted []ioformat.ConvertedTask, onConflict string) (int, in
 				if onConflict == "skip" {
 					continue
 				}
-				ct.Task.ID = existing.ID
-				if err := tx.Session(&gorm.Session{FullSaveAssociations: false}).
-					Select("*").Omit("CreatedAt").Save(&ct.Task).Error; err != nil {
+				// Update only the columns beads owns, via UpdateColumns so
+				// GORM's autoUpdateTime doesn't clobber the imported
+				// updated_at. Local-only columns (parent_id, synced, summary,
+				// compacted) are left untouched.
+				updates := map[string]any{
+					"title":        ct.Task.Title,
+					"description":  ct.Task.Description,
+					"status":       ct.Task.Status,
+					"priority":     ct.Task.Priority,
+					"type":         ct.Task.Type,
+					"labels":       ct.Task.Labels,
+					"assignee":     ct.Task.Assignee,
+					"notes":        ct.Task.Notes,
+					"close_reason": ct.Task.CloseReason,
+					"source":       ct.Task.Source,
+					"updated_at":   ct.Task.UpdatedAt,
+					"closed_at":    ct.Task.ClosedAt,
+				}
+				if err := tx.Model(&models.Task{}).Where("id = ?", existing.ID).
+					UpdateColumns(updates).Error; err != nil {
 					return fmt.Errorf("update %s: %w", ct.SourceID, err)
 				}
 				updated++
@@ -166,28 +215,45 @@ func applyImport(converted []ioformat.ConvertedTask, onConflict string) (int, in
 			inserted++
 		}
 
-		// Pass 2: dependencies, once every source id has a gur id.
+		// Pass 2: dependencies, once every source id has a gur id. Mirror
+		// `gur dep add` invariants: no self-references, no cycles.
+		var existingDeps []models.Dependency
+		if err := tx.Find(&existingDeps).Error; err != nil {
+			return fmt.Errorf("load deps: %w", err)
+		}
+		type edge struct{ parent, child, typ string }
+		seen := make(map[edge]bool, len(existingDeps))
+		adj := make(map[string][]string) // blocker -> blocked, all dep types
+		for _, d := range existingDeps {
+			seen[edge{d.ParentID, d.ChildID, d.Type}] = true
+			adj[d.ParentID] = append(adj[d.ParentID], d.ChildID)
+		}
+
 		for _, ct := range converted {
 			for _, d := range ct.DepTargets {
 				from, okF := bdToGur[d.FromSourceID]
 				to, okT := bdToGur[d.ToSourceID]
 				if !okF || !okT {
-					unknownDeps = append(unknownDeps, fmt.Sprintf("%s->%s (%s)", d.FromSourceID, d.ToSourceID, d.Type))
+					skippedDeps = append(skippedDeps, fmt.Sprintf("%s->%s (%s): unknown target", d.FromSourceID, d.ToSourceID, d.Type))
 					continue
 				}
-				var existing int64
-				if err := tx.Model(&models.Dependency{}).
-					Where("parent_id = ? AND child_id = ? AND type = ?", to, from, d.Type).
-					Count(&existing).Error; err != nil {
-					return fmt.Errorf("dep lookup %s->%s: %w", from, to, err)
+				if from == to {
+					skippedDeps = append(skippedDeps, fmt.Sprintf("%s->%s (%s): self-reference", d.FromSourceID, d.ToSourceID, d.Type))
+					continue
 				}
-				if existing > 0 {
+				if seen[edge{to, from, d.Type}] {
+					continue
+				}
+				if reaches(adj, from, to) {
+					skippedDeps = append(skippedDeps, fmt.Sprintf("%s->%s (%s): would create a cycle", d.FromSourceID, d.ToSourceID, d.Type))
 					continue
 				}
 				dep := models.Dependency{ParentID: to, ChildID: from, Type: d.Type}
 				if err := tx.Create(&dep).Error; err != nil {
 					return fmt.Errorf("dep %s->%s: %w", from, to, err)
 				}
+				seen[edge{to, from, d.Type}] = true
+				adj[to] = append(adj[to], from)
 			}
 		}
 		return nil
@@ -195,7 +261,7 @@ func applyImport(converted []ioformat.ConvertedTask, onConflict string) (int, in
 	if err != nil {
 		return 0, 0, nil, err
 	}
-	return inserted, updated, unknownDeps, nil
+	return inserted, updated, skippedDeps, nil
 }
 
 func findBySourceID(tx *gorm.DB, sid string) (*models.Task, bool, error) {
@@ -210,10 +276,10 @@ func findBySourceID(tx *gorm.DB, sid string) (*models.Task, bool, error) {
 	return nil, false, err
 }
 
-func printImportSummary(summary map[string]any, inserted, updated int, unknownDeps []string) {
+func printImportSummary(summary map[string]any, inserted, updated int, skippedDeps []string) {
 	if IsJSONOutput() {
-		if unknownDeps != nil {
-			summary["unknown_deps"] = unknownDeps
+		if skippedDeps != nil {
+			summary["skipped_deps"] = skippedDeps
 		}
 		OutputJSON(summary)
 		return
@@ -233,11 +299,20 @@ func printImportSummary(summary map[string]any, inserted, updated int, unknownDe
 		fmt.Fprintf(os.Stderr, "WARNING: skipped %d infrastructure/unknown records (agents, rigs, roles, messages, custom types)\n", n)
 	}
 	if n, _ := summary["invalid_lines"].(int); n > 0 {
-		fmt.Fprintf(os.Stderr, "WARNING: %d lines failed to parse\n", n)
+		fmt.Fprintf(os.Stderr, "WARNING: %d line(s) failed to parse and were skipped:\n", n)
+		lineErrs, _ := summary["line_errors"].([]string)
+		const maxShown = 5
+		for i, le := range lineErrs {
+			if i == maxShown {
+				fmt.Fprintf(os.Stderr, "  ... and %d more\n", len(lineErrs)-maxShown)
+				break
+			}
+			fmt.Fprintf(os.Stderr, "  %s\n", le)
+		}
 	}
-	if len(unknownDeps) > 0 {
-		fmt.Fprintf(os.Stderr, "WARNING: %d dependencies reference unknown tasks and were skipped:\n", len(unknownDeps))
-		for _, d := range unknownDeps {
+	if len(skippedDeps) > 0 {
+		fmt.Fprintf(os.Stderr, "WARNING: %d dependencies were skipped (unknown target, self-reference, or cycle):\n", len(skippedDeps))
+		for _, d := range skippedDeps {
 			fmt.Fprintf(os.Stderr, "  %s\n", d)
 		}
 	}

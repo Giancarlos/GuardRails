@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Giancarlos/guardrails/internal/models"
 )
@@ -147,6 +148,25 @@ func TestConvertIssue_DepMapping(t *testing.T) {
 	}
 	if got.DepTargets[2].Type != models.DepTypeParentChild {
 		t.Errorf("parent-child: got %q", got.DepTargets[2].Type)
+	}
+}
+
+func TestTruncate_RuneSafe(t *testing.T) {
+	// 100 x 4-byte runes = 400 bytes; 255 is not a multiple of 4, so a naive
+	// byte cut would split a rune.
+	title := strings.Repeat("🚀", 100)
+	got := truncate(title, 255)
+	if len(got) > 255 {
+		t.Errorf("truncate exceeded max: %d bytes", len(got))
+	}
+	if !utf8.ValidString(got) {
+		t.Errorf("truncate split a rune: %q", got[len(got)-4:])
+	}
+	if len(got) != 252 { // 63 whole runes
+		t.Errorf("want 252 bytes (63 runes), got %d", len(got))
+	}
+	if s := "short"; truncate(s, 255) != s {
+		t.Error("short string should be untouched")
 	}
 }
 
