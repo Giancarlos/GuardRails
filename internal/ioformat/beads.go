@@ -63,14 +63,26 @@ type BeadsDependency struct {
 	CreatedBy   string `json:"created_by,omitempty"`
 }
 
+// maxLineErrors caps how many per-line error details are retained;
+// InvalidLines always carries the true count.
+const maxLineErrors = 100
+
 // DecodeResult summarizes what was parsed.
 type DecodeResult struct {
 	Issues          []BeadsIssue
 	MemoriesSkipped int
 	InfraSkipped    int
 	InvalidLines    int
-	// LineErrors describes each line that failed to parse ("line N: <err>").
+	// LineErrors describes lines that failed to parse ("line N: <err>"),
+	// capped at maxLineErrors entries.
 	LineErrors []string
+}
+
+func (r *DecodeResult) addLineError(lineNo int, msg string) {
+	r.InvalidLines++
+	if len(r.LineErrors) < maxLineErrors {
+		r.LineErrors = append(r.LineErrors, fmt.Sprintf("line %d: %s", lineNo, msg))
+	}
 }
 
 // coreIssueTypes is the set of issue_type values we accept as tasks.
@@ -111,8 +123,7 @@ func DecodeBeadsJSONL(r io.Reader) (*DecodeResult, error) {
 
 		var issue BeadsIssue
 		if err := json.Unmarshal(raw, &issue); err != nil {
-			res.InvalidLines++
-			res.LineErrors = append(res.LineErrors, fmt.Sprintf("line %d: %v", lineNo, err))
+			res.addLineError(lineNo, err.Error())
 			continue
 		}
 
@@ -133,8 +144,7 @@ func DecodeBeadsJSONL(r io.Reader) (*DecodeResult, error) {
 		// An empty id would make every such record upsert onto the same
 		// source_id="" row, silently merging distinct records.
 		if issue.ID == "" {
-			res.InvalidLines++
-			res.LineErrors = append(res.LineErrors, fmt.Sprintf("line %d: missing issue id", lineNo))
+			res.addLineError(lineNo, "missing issue id")
 			continue
 		}
 

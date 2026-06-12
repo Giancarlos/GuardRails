@@ -72,7 +72,9 @@ func runExport(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer closeFn()
+	// Safety net for early returns; the success path closes explicitly below
+	// so flush errors (e.g. disk full) are reported.
+	defer func() { _ = closeFn() }()
 
 	switch exportFormat {
 	case "gur-jsonl":
@@ -88,6 +90,9 @@ func runExport(cmd *cobra.Command, args []string) error {
 	}
 	if err != nil {
 		return fmt.Errorf("encode: %w", err)
+	}
+	if err := closeFn(); err != nil {
+		return fmt.Errorf("close output: %w", err)
 	}
 
 	// When the JSONL stream goes to stdout, keep stdout pure: no summary at
@@ -127,6 +132,10 @@ func filterByLabels(tasks []models.Task, exclude []string) []models.Task {
 	return out
 }
 
+// depQueryChunk keeps the IN(...) bind-variable count well under SQLite's
+// limit so exports of very large DBs don't fail.
+const depQueryChunk = 500
+
 func loadDepsByChild(tasks []models.Task) (map[string][]models.Dependency, error) {
 	if len(tasks) == 0 {
 		return nil, nil
@@ -135,20 +144,23 @@ func loadDepsByChild(tasks []models.Task) (map[string][]models.Dependency, error
 	for i, t := range tasks {
 		ids[i] = t.ID
 	}
-	var deps []models.Dependency
-	if err := db.GetDB().Where("child_id IN ?", ids).Find(&deps).Error; err != nil {
-		return nil, fmt.Errorf("query deps: %w", err)
-	}
-	out := make(map[string][]models.Dependency, len(deps))
-	for _, d := range deps {
-		out[d.ChildID] = append(out[d.ChildID], d)
+	out := make(map[string][]models.Dependency)
+	for start := 0; start < len(ids); start += depQueryChunk {
+		end := min(start+depQueryChunk, len(ids))
+		var deps []models.Dependency
+		if err := db.GetDB().Where("child_id IN ?", ids[start:end]).Find(&deps).Error; err != nil {
+			return nil, fmt.Errorf("query deps: %w", err)
+		}
+		for _, d := range deps {
+			out[d.ChildID] = append(out[d.ChildID], d)
+		}
 	}
 	return out, nil
 }
 
-func openExportWriter(path string) (io.Writer, func(), error) {
+func openExportWriter(path string) (io.Writer, func() error, error) {
 	if path == "" {
-		return os.Stdout, func() {}, nil
+		return os.Stdout, func() error { return nil }, nil
 	}
 	// Reject suspicious paths just enough to avoid accidental surprises.
 	if strings.HasPrefix(path, "-") {
@@ -158,5 +170,5 @@ func openExportWriter(path string) (io.Writer, func(), error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("create output: %w", err)
 	}
-	return f, func() { f.Close() }, nil
+	return f, f.Close, nil
 }

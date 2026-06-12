@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -270,7 +271,7 @@ func findBySourceID(tx *gorm.DB, sid string) (*models.Task, bool, error) {
 	if err == nil {
 		return &t, true, nil
 	}
-	if err == gorm.ErrRecordNotFound {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, false, nil
 	}
 	return nil, false, err
@@ -304,10 +305,13 @@ func printImportSummary(summary map[string]any, inserted, updated int, skippedDe
 		const maxShown = 5
 		for i, le := range lineErrs {
 			if i == maxShown {
-				fmt.Fprintf(os.Stderr, "  ... and %d more\n", len(lineErrs)-maxShown)
 				break
 			}
 			fmt.Fprintf(os.Stderr, "  %s\n", le)
+		}
+		// n is the true count; lineErrs detail may be capped below it.
+		if n > maxShown {
+			fmt.Fprintf(os.Stderr, "  ... and %d more\n", n-maxShown)
 		}
 	}
 	if len(skippedDeps) > 0 {

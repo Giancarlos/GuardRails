@@ -83,7 +83,7 @@ func ConvertIssue(issue BeadsIssue, opts ConvertOptions) ConvertedTask {
 		Status:      status,
 		Priority:    clampPriority(issue.Priority),
 		Type:        typ,
-		Labels:      models.StringSlice(labels),
+		Labels:      models.StringSlice(dedupeLabels(labels)),
 		Assignee:    assignee,
 		Notes:       notes,
 		CloseReason: issue.CloseReason,
@@ -167,6 +167,20 @@ func mapDepType(t string) (string, string) {
 		// tracks, discovered-from, until, caused-by, validates, supersedes
 		return models.DepTypeRelated, t
 	}
+}
+
+// dedupeLabels drops repeated labels (bd data may already carry a label we
+// also synthesize), keeping first-occurrence order.
+func dedupeLabels(labels []string) []string {
+	seen := make(map[string]bool, len(labels))
+	out := labels[:0]
+	for _, l := range labels {
+		if !seen[l] {
+			seen[l] = true
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 func clampPriority(p int) int {

@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -284,6 +285,37 @@ func TestParseTypeMaps_RejectsInvalidTarget(t *testing.T) {
 	}
 	if m["spike"] != "bug" || m["story"] != "feature" {
 		t.Errorf("mapping wrong: %v", m)
+	}
+}
+
+func TestLoadDepsByChild_Chunked(t *testing.T) {
+	setupImportTestDB(t)
+	// More tasks than depQueryChunk so the IN(...) query must split.
+	n := depQueryChunk*2 + 100
+	tasks := make([]models.Task, n)
+	for i := range tasks {
+		tasks[i] = models.Task{ID: fmt.Sprintf("gur-%08x", i), Title: "t", Status: models.StatusOpen}
+	}
+	if err := db.GetDB().CreateInBatches(tasks, 200).Error; err != nil {
+		t.Fatalf("create tasks: %v", err)
+	}
+	deps := make([]models.Dependency, 0, n-1)
+	for i := 1; i < n; i++ {
+		deps = append(deps, models.Dependency{ParentID: tasks[0].ID, ChildID: tasks[i].ID, Type: models.DepTypeBlocks})
+	}
+	if err := db.GetDB().CreateInBatches(deps, 200).Error; err != nil {
+		t.Fatalf("create deps: %v", err)
+	}
+
+	got, err := loadDepsByChild(tasks)
+	if err != nil {
+		t.Fatalf("loadDepsByChild: %v", err)
+	}
+	if len(got) != n-1 {
+		t.Errorf("want deps for %d children, got %d", n-1, len(got))
+	}
+	if len(got[tasks[1].ID]) != 1 || got[tasks[1].ID][0].ParentID != tasks[0].ID {
+		t.Errorf("dep content wrong: %+v", got[tasks[1].ID])
 	}
 }
 

@@ -151,6 +151,25 @@ func TestConvertIssue_DepMapping(t *testing.T) {
 	}
 }
 
+func TestConvertIssue_LabelDedup(t *testing.T) {
+	// bd data already carries the label we'd synthesize for deferred status.
+	iss := BeadsIssue{ID: "bd-1", Title: "t", IssueType: "task", Status: "deferred",
+		Labels: []string{"bd:deferred", "backend", "backend"}}
+	got := ConvertIssue(iss, DefaultConvertOptions())
+	counts := map[string]int{}
+	for _, l := range got.Task.Labels {
+		counts[l]++
+	}
+	for l, n := range counts {
+		if n > 1 {
+			t.Errorf("label %q duplicated %d times: %v", l, n, got.Task.Labels)
+		}
+	}
+	if counts["bd:deferred"] != 1 || counts["backend"] != 1 {
+		t.Errorf("expected deduped bd:deferred and backend, got %v", got.Task.Labels)
+	}
+}
+
 func TestTruncate_RuneSafe(t *testing.T) {
 	// 100 x 4-byte runes = 400 bytes; 255 is not a multiple of 4, so a naive
 	// byte cut would split a rune.

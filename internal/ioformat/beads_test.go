@@ -66,6 +66,20 @@ func TestDecodeBeadsJSONL_EmptyIDSkipped(t *testing.T) {
 	}
 }
 
+func TestDecodeBeadsJSONL_LineErrorsCapped(t *testing.T) {
+	in := strings.Repeat("garbage\n", maxLineErrors+50)
+	res, err := DecodeBeadsJSONL(strings.NewReader(in))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.InvalidLines != maxLineErrors+50 {
+		t.Errorf("InvalidLines should carry true count: want %d, got %d", maxLineErrors+50, res.InvalidLines)
+	}
+	if len(res.LineErrors) != maxLineErrors {
+		t.Errorf("LineErrors should cap at %d, got %d", maxLineErrors, len(res.LineErrors))
+	}
+}
+
 func TestDecodeBeadsJSONL_BOMStripped(t *testing.T) {
 	in := "\xef\xbb\xbf" + `{"id":"bd-bom","title":"bom","status":"open","issue_type":"task"}` + "\n"
 	res, err := DecodeBeadsJSONL(strings.NewReader(in))
